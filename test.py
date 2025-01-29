@@ -90,6 +90,7 @@ def find_parallel_lines(matches, mac_kp, windows_kp, tolerance=0.11):
     
     return max(groups, key=len) if groups else []
 
+
 def draw_contours_on_piece(piece_img, contours, color=(0, 255, 0), thickness=2):
     """
     Draw contours on the input image
@@ -114,6 +115,7 @@ def draw_contours_on_piece(piece_img, contours, color=(0, 255, 0), thickness=2):
     
     return display_img
 
+
 def calculate_distance(match1, match2, mac_kp, windows_kp):
     pt1_1 = mac_kp[match1.queryIdx].pt
     pt2_1 = windows_kp[match1.trainIdx].pt
@@ -124,6 +126,7 @@ def calculate_distance(match1, match2, mac_kp, windows_kp):
     mid2 = ((pt1_2[0] + pt2_2[0])/2, (pt1_2[1] + pt2_2[1])/2)
     
     return ((mid1[0] - mid2[0])**2 + (mid1[1] - mid2[1])**2)**0.5
+
 
 def calculate_slope(match, mac_kp, windows_kp):
     mac_pt = mac_kp[match.queryIdx].pt
@@ -184,7 +187,8 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, windows_keyboard,
     bf = cv2.BFMatcher()
     
     for i, (mac_piece, mac_piece_contours) in enumerate(piece_array_mac):
-
+        # if i < 75:
+        #     continue
         h, w = mac_piece.shape  
         mac_relation_area_height = max(h/w, w/h)
         
@@ -204,13 +208,8 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, windows_keyboard,
             count_mac_contours = len(mac_piece_contours)
             count_win_contours = len(win_piece_contours)
 
-            if(abs(count_win_contours - count_mac_contours)) > 1:
+            if(abs(count_win_contours - count_mac_contours)) != 0:
                 continue
-
-            if(abs(count_win_contours - count_mac_contours) == 1):
-                if (((count_win_contours > count_mac_contours) and (win_piece_contours[-1]['area'] > 200)) or 
-                    ((count_win_contours < count_mac_contours) and (mac_piece_contours[-1]['area'] > 200))):
-                    continue
 
             windows_kp, windows_des = sift.detectAndCompute(windows_piece, None)
             
@@ -242,40 +241,38 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, windows_keyboard,
                         'mac_kp': mac_kp,
                         'windows_kp': windows_kp,
                         'total_matches': len(reduced_matches),
-                        'CA': 0
+                        'CA': 0,
+                        'CA_another': 0 
                     }
-                if len(win_piece_contours) == len(mac_piece_contours) == 0:
+
+                win_check_biggest_contour = (win_piece_contours[-1]["area"] / windows_piece.size)*100
+                mac_check_biggest_contour = (mac_piece_contours[-1]["area"] / mac_piece.size)*100
+                CA_count = abs(win_check_biggest_contour - mac_check_biggest_contour)
+                match_info['CA'] = CA_count
+
+                if (score >= 4):
                     mac_matches.append(match_info)
 
-                else:
-                    win_check_biggest_contour = (win_piece_contours[-1]["area"] / windows_piece.size)*100
-                    mac_check_biggest_contour = (mac_piece_contours[-1]["area"] / mac_piece.size)*100
-                    CA_count = abs(win_check_biggest_contour - mac_check_biggest_contour)
-                    match_info['CA'] = CA_count
-
-                    if (score >= 4):
-                        mac_matches.append(match_info)
-
-                    else:
-                        if CA_count < 55:
-                            mac_matches.append(match_info)
+                elif CA_count < 0.55:
+                    mac_matches.append(match_info)
                             
 
         if mac_matches:
             sorted_matches = sorted(mac_matches, 
                                  key=lambda x: (x['score'], x['total_matches']), 
                                  reverse=True)
+            # top_matches = sorted_matches[:8]
             if sorted_matches[0]['score'] > 5:
                 if sorted_matches[0]['CA'] < 1:
                     top_matches = [sorted_matches[0]]
                 else:
                     top_matches = [m for m in sorted_matches if m['score'] >= sorted_matches[0]['score'] - 1]
-            
+
             else:
-                top_matches = sorted_matches[:15]
+                top_matches = sorted_matches[:8]
+
             visualize_matches_detailed(top_matches, windows_keyboard, bbox_coords)
             
-
 
 def visualize_matches_detailed(mac_matches, windows_keyboard, bbox_coords):
     n_matches = len(mac_matches)
@@ -299,15 +296,47 @@ def visualize_matches_detailed(mac_matches, windows_keyboard, bbox_coords):
         # Top row: show match details
         axes[idx].imshow(matches_img)
         if(len(match["windows_contours"]) > 0):
-            axes[idx].set_title(f'score: {match["score"]}\nTotal: {match["total_matches"]}\n{round((match["windows_contours"][-1]["area"] / match["windows_piece"].size)*100, 2)}')
+            axes[idx].set_title(f'score: {match["score"]}\nTotal: {match["total_matches"]}\n{round((match["windows_contours"][-1]["area"] / match["windows_piece"].size)*100, 2)}\nC: {len(match['windows_contours'])}')
         axes[idx].axis('off')
             
     if(len(mac_matches[0]['mac_contours']) > 0):
-        plt.suptitle(f'Top matches for Mac piece {mac_matches[0]["mac_index"]}\nMac CA: {round((mac_matches[0]['mac_contours'][-1]['area']/ mac_matches[0]['mac_piece'].size)*100, 2)}')
+        plt.suptitle(f'Top matches for Mac piece {mac_matches[0]["mac_index"]}\nMac CA: {round((mac_matches[0]['mac_contours'][-1]['area']/ mac_matches[0]['mac_piece'].size)*100, 2)}\nC: {len(mac_matches[0]['mac_contours'])}')
     plt.tight_layout()
     plt.show()
 
 
+# Function to check if contours contain other contours
+def check_for_contained_contours(contours):
+    # If no contours or only one contour, no containment possible
+    if len(contours) <= 1:
+        return False
+        
+    contours.sort(key=lambda x: x['area'], reverse=True)  # Largest first
+    
+    # Check each smaller contour against larger ones
+    for small_piece in contours[1:]:        
+        # Get the center point of small piece
+        center_point = (small_piece['x'], small_piece['y'])
+        
+        # Check against larger contours
+        for larger_piece in contours[:contours.index(small_piece)]:
+            # Check if the center point is inside the larger contour
+            result = cv2.pointPolygonTest(larger_piece['cnt'], center_point, False)
+            
+            if result > 0:  # If any center point is inside
+                return True
+                
+    return False
+
+# Usage:
+
+# # Process windows array
+# print("\nProcessing windows array...")
+# for piece_idx, (piece, contours) in enumerate(pieces_array_windows):
+#     print(f"\nProcessing windows piece {piece_idx} - Starting with {len(contours)} contours")
+#     filtered_contours = filter_contained_contours(piece, contours)
+#     print(f"Piece {piece_idx} ended with {len(filtered_contours)} contours")
+#     pieces_array_windows[piece_idx] = (piece, filtered_contours)
 
 
 
@@ -344,11 +373,17 @@ for cnt in contours:
             area = cv2.contourArea(cnt)
             rect = cv2.minAreaRect(cnt)
             (cx, cy), (width, height), angle = rect
-            if (piece.size / 400) < area < (piece.size - piece.size / 1.17) and width > 0 and height > 0:                
+            if ((piece.size / 500) < area < (piece.size - piece.size / 1.17) and 
+                10 < cx < (piece.shape[1]-10) and 10 < cy < (piece.shape[0]-10)):                
                 contour = {'x': cx, 'y': cy, 'width': width, 'height': height, 'area': area, 'angle': angle, 'cnt': cnt}
                 contours_for_piece.append(contour)
 
         pieces_array_mac.append((piece, sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)))
+
+
+for piece_idx, (piece, contours) in enumerate(pieces_array_mac):
+    has_contained = check_for_contained_contours(contours)
+    contours.has_contained = has_contained  # Add attribute to contours list        
 
 
 # for piece, contours in pieces_array_mac:
@@ -374,6 +409,7 @@ for cnt in contours:
 #     plt.title(f'{len(contours)}')
 #     plt.axis('off')
 #     plt.show()
+
 
 
 windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
@@ -402,11 +438,18 @@ for cnt in contours:
             area = cv2.contourArea(cnt)
             rect = cv2.minAreaRect(cnt)
             (cx, cy), (width, height), angle = rect  # Extract correct center
-            if (piece.size / 340) < area < (piece.size - piece.size / 1.17):
+            if ((piece.size / 370) < area < (piece.size - piece.size / 1.17) and 
+                10 < cx < (piece.shape[1]-10) and 10 < cy < (piece.shape[0]-10)):
                 contour = {'x': cx, 'y': cy, 'width': width, 'height': height, 'area': area, 'angle': angle, 'cnt': cnt}
                 contours_for_piece.append(contour)
 
         pieces_array_windows.append((piece, sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)))
+
+
+for piece_idx, (piece, contours) in enumerate(pieces_array_windows):
+    has_contained = check_for_contained_contours(contours)
+    contours.has_contained = has_contained  # Add attribute to contours list        
+
 
 # for piece, contours in pieces_array_windows:
 #     piece_color = cv2.cvtColor(piece, cv2.COLOR_GRAY2BGR)
