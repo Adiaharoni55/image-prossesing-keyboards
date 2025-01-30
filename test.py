@@ -134,10 +134,6 @@ def calculate_slope(match, mac_kp, windows_kp):
     return (win_pt[1] - mac_pt[1]) / (win_pt[0] - mac_pt[0]) if win_pt[0] != mac_pt[0] else float('inf')
 
 
-# def points_are_close(pt1, pt2, tolerance=2):
-#     return abs(pt1[0] - pt2[0]) <= tolerance and abs(pt1[1] - pt2[1]) <= tolerance
-
-
 def get_points(match, mac_kp, windows_kp):
     mac_pt = mac_kp[match.queryIdx].pt
     win_pt = windows_kp[match.trainIdx].pt
@@ -182,12 +178,14 @@ def reduce_similar_matches(matches, mac_kp, windows_kp, slope_tolerance=0.04, di
     return reduced_matches
 
 
-def find_matching_pieces(piece_array_mac, piece_array_windows, windows_keyboard, bbox_coords):
+def find_matching_pieces(piece_array_mac, piece_array_windows):
     sift = cv2.SIFT_create()
     bf = cv2.BFMatcher()
+
+    all_matches = []
     
     for i, (mac_piece, mac_piece_contours) in enumerate(piece_array_mac):
-        # if i < 75:
+        # if i < 43:
         #     continue
         h, w = mac_piece.shape  
         mac_relation_area_height = max(h/w, w/h)
@@ -233,27 +231,37 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, windows_keyboard,
                         'windows_piece': windows_piece,
                         'original_mac_piece': piece_array_mac[i],
                         'original_windows_piece': piece_array_windows[j],
-                        'mac_contours': mac_piece_contours,
-                        'windows_contours': win_piece_contours,
                         'mac_index': i,
+                        'windows_index': j,
                         'score': score,
                         'matches': parallel_matches,
                         'mac_kp': mac_kp,
                         'windows_kp': windows_kp,
                         'total_matches': len(reduced_matches),
-                        'CA': 0,
-                        'CA_another': 0 
+                        'CA_big': 0,
+                        'CA_small': 0,
+                        'mac_contours': mac_piece_contours,
+                        'windows_contours': win_piece_contours
+
                     }
+            
 
-                win_check_biggest_contour = (win_piece_contours[-1]["area"] / windows_piece.size)*100
-                mac_check_biggest_contour = (mac_piece_contours[-1]["area"] / mac_piece.size)*100
-                CA_count = abs(win_check_biggest_contour - mac_check_biggest_contour)
-                match_info['CA'] = CA_count
+                if (len(win_piece_contours) != 0 and len(mac_piece_contours) != 0):
+                    win_check_biggest_contour = (win_piece_contours[0]["area"] / windows_piece.size)*100
+                    mac_check_biggest_contour = (mac_piece_contours[0]["area"] / mac_piece.size)*100
+                    CA_count = abs(win_check_biggest_contour - mac_check_biggest_contour)
+                    match_info['CA_bigest'] = CA_count
 
-                if (score >= 4):
+                    win_check_biggest_contour = (win_piece_contours[-1]["area"] / windows_piece.size)*100
+                    mac_check_biggest_contour = (mac_piece_contours[-1]["area"] / mac_piece.size)*100
+                    CA_count = abs(win_check_biggest_contour - mac_check_biggest_contour)
+                    match_info['CA_small'] = CA_count
+
+
+                if score >= 5:
                     mac_matches.append(match_info)
 
-                elif CA_count < 0.55:
+                elif min(match_info['CA_bigest'], match_info['CA_small']) < 0.55 and max(match_info['CA_bigest'], match_info['CA_small']) < 2:
                     mac_matches.append(match_info)
                             
 
@@ -261,83 +269,92 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, windows_keyboard,
             sorted_matches = sorted(mac_matches, 
                                  key=lambda x: (x['score'], x['total_matches']), 
                                  reverse=True)
-            # top_matches = sorted_matches[:8]
+
             if sorted_matches[0]['score'] > 5:
-                if sorted_matches[0]['CA'] < 1:
+                if len(sorted_matches) > 1 and sorted_matches[1]['score'] < sorted_matches[0]['score'] - 1:
                     top_matches = [sorted_matches[0]]
                 else:
                     top_matches = [m for m in sorted_matches if m['score'] >= sorted_matches[0]['score'] - 1]
 
             else:
-                top_matches = sorted_matches[:8]
+                top_matches = sorted_matches[:6]
 
-            visualize_matches_detailed(top_matches, windows_keyboard, bbox_coords)
-            
+            # visualize_matches_detailed(top_matches, windows_keyboard, bbox_coords)
 
-def visualize_matches_detailed(mac_matches, windows_keyboard, bbox_coords):
-    n_matches = len(mac_matches)
-    fig, axes = plt.subplots(1, min(15, n_matches), figsize=(20, 5))
-    
-    if n_matches == 1:
-        axes = np.array([axes])
+            all_matches.append(top_matches)
 
-    for idx, match in enumerate(mac_matches):
-        if idx >= 15:
-            break
+    return all_matches
+      
 
-        # Draw matches between pieces
-        matches_img = cv2.drawMatches(
-            match['mac_piece'], match['mac_kp'],
-            match['windows_piece'], match['windows_kp'],
-            match['matches'], None,
-            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-        )
-
-        # Top row: show match details
-        axes[idx].imshow(matches_img)
-        if(len(match["windows_contours"]) > 0):
-            axes[idx].set_title(f'score: {match["score"]}\nTotal: {match["total_matches"]}\n{round((match["windows_contours"][-1]["area"] / match["windows_piece"].size)*100, 2)}\nC: {len(match['windows_contours'])}')
-        axes[idx].axis('off')
-            
-    if(len(mac_matches[0]['mac_contours']) > 0):
-        plt.suptitle(f'Top matches for Mac piece {mac_matches[0]["mac_index"]}\nMac CA: {round((mac_matches[0]['mac_contours'][-1]['area']/ mac_matches[0]['mac_piece'].size)*100, 2)}\nC: {len(mac_matches[0]['mac_contours'])}')
-    plt.tight_layout()
-    plt.show()
-
-
-# Function to check if contours contain other contours
-def check_for_contained_contours(contours):
-    # If no contours or only one contour, no containment possible
-    if len(contours) <= 1:
-        return False
+def visualize_matches_detailed(all_matches, windows_keyboard, bbox_coords):
+    # Iterate through each set of matches
+    for mac_matches in all_matches:
+        n_matches = len(mac_matches)
+        # Create a 2x8 subplot grid
+        fig, axes = plt.subplots(2, min(8, n_matches), figsize=(20, 7))
         
-    contours.sort(key=lambda x: x['area'], reverse=True)  # Largest first
-    
-    # Check each smaller contour against larger ones
-    for small_piece in contours[1:]:        
-        # Get the center point of small piece
-        center_point = (small_piece['x'], small_piece['y'])
+        # Make sure axes is always 2D
+        if n_matches == 1:
+            axes = np.array([[axes[0]], [axes[1]]])  # Reshape for single match case
         
-        # Check against larger contours
-        for larger_piece in contours[:contours.index(small_piece)]:
-            # Check if the center point is inside the larger contour
-            result = cv2.pointPolygonTest(larger_piece['cnt'], center_point, False)
+        for idx, match in enumerate(mac_matches):
+            if idx >= 8:
+                break
+
+            # Draw matches between pieces
+            matches_img = cv2.drawMatches(
+                match['mac_piece'], match['mac_kp'],
+                match['windows_piece'], match['windows_kp'],
+                match['matches'], None,
+                flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+            )
+
+            # Top row: show match details
+            axes[0, idx].imshow(matches_img)
+            axes[0, idx].set_title(f'score: {match["score"]}\n')
+            axes[0, idx].axis('off')
+
+            # Bottom row: highlight piece location in keyboard
+            keyboard_viz = cv2.cvtColor(windows_keyboard.copy(), cv2.COLOR_GRAY2BGR)
+            windows_idx = match['windows_index']
+            x1, y1, x2, y2 = bbox_coords[windows_idx]
             
-            if result > 0:  # If any center point is inside
-                return True
+            # Draw rectangle around matched piece
+            cv2.rectangle(keyboard_viz, (x1, y1), (x2, y2), (0, 255, 0), 15)
+            
+            axes[1, idx].imshow(keyboard_viz)
+            axes[1, idx].axis('off')
+        
+        # Hide empty subplots if less than 8 matches
+        for j in range(n_matches, 8):
+            if j < axes.shape[1]:
+                axes[0, j].axis('off')
+                axes[1, j].set_visible(False)
                 
-    return False
+        plt.suptitle(
+            f'Matches for Mac Keyboard Piece #{mac_matches[0]["mac_index"]}\n\n' + 
+            'Top Row: Feature Matching Visualization\n' +
+            '(Mac piece on left, Windows piece on right)\n\n' +
+            'Bottom Row: Location in Windows Keyboard (green rectangle)',
+            fontsize=12, y=1.05
+        )
+        plt.tight_layout()
+        plt.show()
 
-# Usage:
 
-# # Process windows array
-# print("\nProcessing windows array...")
-# for piece_idx, (piece, contours) in enumerate(pieces_array_windows):
-#     print(f"\nProcessing windows piece {piece_idx} - Starting with {len(contours)} contours")
-#     filtered_contours = filter_contained_contours(piece, contours)
-#     print(f"Piece {piece_idx} ended with {len(filtered_contours)} contours")
-#     pieces_array_windows[piece_idx] = (piece, filtered_contours)
-
+def process_windows_keyboard(windows_binary):
+    contours, _ = cv2.findContours(windows_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    pieces_array_windows = []
+    bbox_coords = {}
+    
+    for idx, cnt in enumerate(contours):
+        x, y, w, h = cv2.boundingRect(cnt)
+        if cv2.contourArea(cnt) > 100:
+            piece = windows_binary[y:y+h, x:x+w]
+            pieces_array_windows.append(piece)
+            bbox_coords[len(pieces_array_windows)-1] = (x, y, x+w, y+h)
+            
+    return pieces_array_windows, bbox_coords
 
 
 mac = cv2.imread("mac.jpeg", cv2.IMREAD_GRAYSCALE)
@@ -381,11 +398,6 @@ for cnt in contours:
         pieces_array_mac.append((piece, sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)))
 
 
-for piece_idx, (piece, contours) in enumerate(pieces_array_mac):
-    has_contained = check_for_contained_contours(contours)
-    contours.has_contained = has_contained  # Add attribute to contours list        
-
-
 # for piece, contours in pieces_array_mac:
 #     piece_color = cv2.cvtColor(piece, cv2.COLOR_GRAY2BGR)
 #     print('-'*30)
@@ -409,7 +421,6 @@ for piece_idx, (piece, contours) in enumerate(pieces_array_mac):
 #     plt.title(f'{len(contours)}')
 #     plt.axis('off')
 #     plt.show()
-
 
 
 windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
@@ -446,11 +457,6 @@ for cnt in contours:
         pieces_array_windows.append((piece, sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)))
 
 
-for piece_idx, (piece, contours) in enumerate(pieces_array_windows):
-    has_contained = check_for_contained_contours(contours)
-    contours.has_contained = has_contained  # Add attribute to contours list        
-
-
 # for piece, contours in pieces_array_windows:
 #     piece_color = cv2.cvtColor(piece, cv2.COLOR_GRAY2BGR)
 #     print('-'*30)
@@ -477,4 +483,28 @@ for piece_idx, (piece, contours) in enumerate(pieces_array_windows):
 #     plt.show()
 
 
-matching_pieces = find_matching_pieces(pieces_array_mac, pieces_array_windows, windows, None)
+windows_keyboard_proccessed, bbox_coords = process_windows_keyboard(windows_binary)
+print("Loading...")
+matching_pieces = find_matching_pieces(pieces_array_mac, pieces_array_windows)
+sorted_matching_pieces = sorted(matching_pieces, key=lambda x: len(x))
+
+# Keep track of which windows piece indices have been assigned
+found_windows_indices = set()
+reduced_matches = []
+
+for matches in sorted_matching_pieces:
+    # Filter out matches where windows piece index is already found
+    filtered_matches = [
+        match for match in matches 
+        if match['windows_index'] not in found_windows_indices
+    ]
+    
+    # If we have a single high confidence match, use it
+    if len(filtered_matches) == 1 and filtered_matches[0]['score'] > 4:
+        found_windows_indices.add(filtered_matches[0]['windows_index'])
+        reduced_matches.append(filtered_matches)
+    # Otherwise keep all remaining valid matches
+    elif filtered_matches:
+        reduced_matches.append(filtered_matches)
+
+visualize_matches_detailed(reduced_matches, windows, bbox_coords)
