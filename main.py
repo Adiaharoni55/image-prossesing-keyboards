@@ -50,7 +50,6 @@ def crop_edges(piece):
     piece = cv2.morphologyEx(piece, cv2.MORPH_CLOSE, kernel)
     return piece
 
-
 def find_parallel_lines(matches, mac_kp, windows_kp, tolerance=0.11):
     if not matches:
         return []
@@ -90,7 +89,6 @@ def find_parallel_lines(matches, mac_kp, windows_kp, tolerance=0.11):
     
     return max(groups, key=len) if groups else []
 
-
 def draw_contours_on_piece(piece_img, contours, color=(0, 255, 0), thickness=2):
     """
     Draw contours on the input image
@@ -115,7 +113,6 @@ def draw_contours_on_piece(piece_img, contours, color=(0, 255, 0), thickness=2):
     
     return display_img
 
-
 def calculate_distance(match1, match2, mac_kp, windows_kp):
     pt1_1 = mac_kp[match1.queryIdx].pt
     pt2_1 = windows_kp[match1.trainIdx].pt
@@ -127,18 +124,15 @@ def calculate_distance(match1, match2, mac_kp, windows_kp):
     
     return ((mid1[0] - mid2[0])**2 + (mid1[1] - mid2[1])**2)**0.5
 
-
 def calculate_slope(match, mac_kp, windows_kp):
     mac_pt = mac_kp[match.queryIdx].pt
     win_pt = windows_kp[match.trainIdx].pt
     return (win_pt[1] - mac_pt[1]) / (win_pt[0] - mac_pt[0]) if win_pt[0] != mac_pt[0] else float('inf')
 
-
 def get_points(match, mac_kp, windows_kp):
     mac_pt = mac_kp[match.queryIdx].pt
     win_pt = windows_kp[match.trainIdx].pt
     return mac_pt, win_pt
-
 
 def reduce_similar_matches(matches, mac_kp, windows_kp, slope_tolerance=0.04, dis_tolerance=0.05):
     if not matches:
@@ -176,7 +170,6 @@ def reduce_similar_matches(matches, mac_kp, windows_kp, slope_tolerance=0.04, di
                     used.add(j)
 
     return reduced_matches
-
 
 def find_matching_pieces(piece_array_mac, piece_array_windows):
     sift = cv2.SIFT_create()
@@ -285,7 +278,6 @@ def find_matching_pieces(piece_array_mac, piece_array_windows):
 
     return all_matches
       
-
 def visualize_matches_detailed(all_matches, windows_keyboard, bbox_coords):
     # Iterate through each set of matches
     for mac_matches in all_matches:
@@ -341,7 +333,6 @@ def visualize_matches_detailed(all_matches, windows_keyboard, bbox_coords):
         plt.tight_layout()
         plt.show()
 
-
 def process_windows_keyboard(windows_binary):
     contours, _ = cv2.findContours(windows_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     pieces_array_windows = []
@@ -356,155 +347,109 @@ def process_windows_keyboard(windows_binary):
             
     return pieces_array_windows, bbox_coords
 
-
-mac = cv2.imread("mac.jpeg", cv2.IMREAD_GRAYSCALE)
-
-mac_binary = cv2.threshold(mac, 135, 255,cv2.THRESH_BINARY)[1]
-
-mac_binary = np.where(mac_binary == 0, 255, 0).astype(np.uint8)
-kernel_size = (3, 3)  
-kernel = np.ones(kernel_size, np.uint8)
-blurred_img = cv2.GaussianBlur(mac_binary, (5,5), 0)  # (kernel size, standard deviation)
-eroded_img = cv2.dilate(mac_binary, kernel, iterations=4)
-mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
-mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
-eroded_img = cv2.erode(mac_binary, kernel, iterations=2)
-
-
-cv2.imwrite('binary_mac.jpeg', mac_binary)
-
-# Find contours on the binary image directly
-contours, hierarchy = cv2.findContours(mac_binary, 
-                                     cv2.RETR_EXTERNAL, 
-                                     cv2.CHAIN_APPROX_SIMPLE)
-
-pieces_array_mac = []
-
-for cnt in contours:
-    x, y, w, h = cv2.boundingRect(cnt)
-    if cv2.contourArea(cnt) > 100:  # Filter small contours
-        piece = crop_edges(mac_binary[y:y+h, x:x+w])
-        mac_piece_contours, hierarchy = cv2.findContours(piece, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        contours_for_piece = []
-        for cnt in mac_piece_contours:
-            area = cv2.contourArea(cnt)
-            rect = cv2.minAreaRect(cnt)
-            (cx, cy), (width, height), angle = rect
-            if ((piece.size / 500) < area < (piece.size - piece.size / 1.17) and 
-                10 < cx < (piece.shape[1]-10) and 10 < cy < (piece.shape[0]-10)):                
-                contour = {'x': cx, 'y': cy, 'width': width, 'height': height, 'area': area, 'angle': angle, 'cnt': cnt}
-                contours_for_piece.append(contour)
-
-        pieces_array_mac.append((piece, sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)))
-
-
-# for piece, contours in pieces_array_mac:
-#     piece_color = cv2.cvtColor(piece, cv2.COLOR_GRAY2BGR)
-#     print('-'*30)
-#     for contour_data in contours:
-#         # Correctly reconstruct the rotated rectangle
-#         rect = ((contour_data['x'], contour_data['y']), 
-#                 (contour_data['width'], contour_data['height']), 
-#                 contour_data['angle'])
-
-#         print(contour_data['area'])
-
-#         # Get the box points
-#         box = cv2.boxPoints(rect)
-#         box = np.int0(box)  # Convert to integer coordinates
-        
-#         # Draw the contour in green
-#         cv2.drawContours(piece_color, [box], 0, (0, 255, 0), 2)
-            
-#     # Show each piece with contours
-#     plt.imshow(cv2.cvtColor(piece_color, cv2.COLOR_BGR2RGB))  # Convert to RGB for Matplotlib
-#     plt.title(f'{len(contours)}')
-#     plt.axis('off')
-#     plt.show()
-
-
-windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
-
-clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(10, 10))
-
-enhanced_image = clahe.apply(windows)
-
-windows_binary = np.where(windows < 170, 255, 0).astype(np.uint8)
-
-cv2.imwrite('binary_windows.jpeg', windows_binary)
-
-contours, hierarchy = cv2.findContours(windows_binary, 
-                                     cv2.RETR_EXTERNAL, 
-                                     cv2.CHAIN_APPROX_SIMPLE)
-
-pieces_array_windows = []
-
-for cnt in contours:
-    x, y, w, h = cv2.boundingRect(cnt)
-    if cv2.contourArea(cnt) > 100:  # Filter small contours
-        piece = crop_edges(windows_binary[y:y+h, x:x+w])
-        win_piece_contours, hierarchy = cv2.findContours(piece, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        contours_for_piece = []
-        for cnt in win_piece_contours:
-            area = cv2.contourArea(cnt)
-            rect = cv2.minAreaRect(cnt)
-            (cx, cy), (width, height), angle = rect  # Extract correct center
-            if ((piece.size / 370) < area < (piece.size - piece.size / 1.17) and 
-                10 < cx < (piece.shape[1]-10) and 10 < cy < (piece.shape[0]-10)):
-                contour = {'x': cx, 'y': cy, 'width': width, 'height': height, 'area': area, 'angle': angle, 'cnt': cnt}
-                contours_for_piece.append(contour)
-
-        pieces_array_windows.append((piece, sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)))
-
-
-# for piece, contours in pieces_array_windows:
-#     piece_color = cv2.cvtColor(piece, cv2.COLOR_GRAY2BGR)
-#     print('-'*30)
-
-#     for contour_data in contours:
-#         print(contour_data['area'])
-
-#         # Correctly reconstruct the rotated rectangle
-#         rect = ((contour_data['x'], contour_data['y']), 
-#                 (contour_data['width'], contour_data['height']), 
-#                 contour_data['angle'])
-
-#         # Get the box points
-#         box = cv2.boxPoints(rect)
-#         box = np.int0(box)  # Convert to integer coordinates
-        
-#         # Draw the contour in green
-#         cv2.drawContours(piece_color, [box], 0, (0, 255, 0), 2)
-            
-#     # Show each piece with contours
-#     plt.imshow(cv2.cvtColor(piece_color, cv2.COLOR_BGR2RGB))  # Convert to RGB for Matplotlib
-#     plt.title(f'{len(contours)}')
-#     plt.axis('off')
-#     plt.show()
-
-
-windows_keyboard_proccessed, bbox_coords = process_windows_keyboard(windows_binary)
-print("Loading...")
-matching_pieces = find_matching_pieces(pieces_array_mac, pieces_array_windows)
-sorted_matching_pieces = sorted(matching_pieces, key=lambda x: len(x))
-
-# Keep track of which windows piece indices have been assigned
-found_windows_indices = set()
-reduced_matches = []
-
-for matches in sorted_matching_pieces:
-    # Filter out matches where windows piece index is already found
-    filtered_matches = [
-        match for match in matches 
-        if match['windows_index'] not in found_windows_indices
-    ]
+def extract_pieces(binary_image, min_contour_area=100, is_mac=True):
+    """Extract keyboard pieces from binary image."""
+    contours, _ = cv2.findContours(binary_image, 
+                                 cv2.RETR_EXTERNAL, 
+                                 cv2.CHAIN_APPROX_SIMPLE)
     
-    # If we have a single high confidence match, use it
-    if len(filtered_matches) == 1 and filtered_matches[0]['score'] > 4:
-        found_windows_indices.add(filtered_matches[0]['windows_index'])
-        reduced_matches.append(filtered_matches)
-    # Otherwise keep all remaining valid matches
-    elif filtered_matches:
-        reduced_matches.append(filtered_matches)
+    pieces_array = []
+    for cnt in contours:
+        if cv2.contourArea(cnt) > min_contour_area:
+            x, y, w, h = cv2.boundingRect(cnt)
+            piece = crop_edges(binary_image[y:y+h, x:x+w])
+            
+            piece_contours = process_piece_contours(piece, is_mac)
+            if piece_contours:  # Only add if valid contours were found
+                pieces_array.append((piece, piece_contours))
+    
+    return pieces_array
 
-visualize_matches_detailed(reduced_matches, windows, bbox_coords)
+def process_piece_contours(piece, is_mac):
+    """Process contours for an individual keyboard piece."""
+    contours, _ = cv2.findContours(piece, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours_for_piece = []
+    
+    size_divisor = 500 if is_mac else 370
+    
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        rect = cv2.minAreaRect(cnt)
+        (cx, cy), (width, height), angle = rect
+        
+        # Check if contour meets size and position criteria
+        if ((piece.size / size_divisor) < area < (piece.size - piece.size / 1.17) and 
+            10 < cx < (piece.shape[1]-10) and 10 < cy < (piece.shape[0]-10)):
+            contour = {
+                'x': cx,
+                'y': cy,
+                'width': width,
+                'height': height,
+                'area': area,
+                'angle': angle,
+                'cnt': cnt
+            }
+            contours_for_piece.append(contour)
+    
+    return sorted(contours_for_piece, key=lambda x: x['area'], reverse=True)
+
+def reduce_matches(matching_pieces):
+    """Reduce matches by eliminating duplicate windows piece matches."""
+    sorted_matching_pieces = sorted(matching_pieces, key=lambda x: len(x))
+    found_windows_indices = set()
+    reduced_matches = []
+
+    for matches in sorted_matching_pieces:
+        filtered_matches = [
+            match for match in matches 
+            if match['windows_index'] not in found_windows_indices
+        ]
+        
+        if len(filtered_matches) == 1 and filtered_matches[0]['score'] > 4:
+            found_windows_indices.add(filtered_matches[0]['windows_index'])
+            reduced_matches.append(filtered_matches)
+        elif filtered_matches:
+            reduced_matches.append(filtered_matches)
+            
+    return reduced_matches
+
+
+def main():
+    # Load images
+    mac = cv2.imread("mac.jpeg", cv2.IMREAD_GRAYSCALE)
+    windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
+
+    # proccess mac 
+    mac_binary = cv2.threshold(mac, 135, 255,cv2.THRESH_BINARY)[1]
+    mac_binary = np.where(mac_binary == 0, 255, 0).astype(np.uint8)
+    kernel_size = (3, 3)  
+    kernel = np.ones(kernel_size, np.uint8)
+    mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
+    mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
+
+    # proccess windows 
+    windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
+    windows_binary = np.where(windows < 170, 255, 0).astype(np.uint8)
+
+        # Extract pieces from both keyboards
+    pieces_array_mac = extract_pieces(mac_binary, is_mac=True)
+    pieces_array_windows = extract_pieces(windows_binary, is_mac=False)
+
+    # Process windows keyboard for visualization
+    _, bbox_coords = process_windows_keyboard(windows_binary)
+    
+    # Find and reduce matches
+    print("Finding matches...")
+    matching_pieces = find_matching_pieces(pieces_array_mac, pieces_array_windows)
+    reduced_matches = reduce_matches(matching_pieces)
+    
+    # Visualize results
+    visualize_matches_detailed(reduced_matches, windows, bbox_coords)
+
+    # # create gif:
+    # import make_animation
+    # make_animation.create_matches_animation(reduced_matches, windows, bbox_coords)
+
+
+if __name__ == "__main__":
+    main()
