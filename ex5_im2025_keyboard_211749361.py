@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+animation = True
 
-# Function to filter contained contours for a single piece
 def filter_contained_contours(contours):
     # If no contours, return empty list
     if not contours:
@@ -31,14 +31,11 @@ def filter_contained_contours(contours):
         
         if not is_contained:
             filtered_results.append(small_piece)
-    
-    # Sort the filtered contours by y-coordinate
-    filtered_results.sort(key=lambda x: x['y'])
-            
+                
     return filtered_results
 
 
-def crop_edges(piece):
+def crop_edges(piece, to_sharp=True):
     """
     Crop edges from a piece by checking what size is the black frame and cut it.
     The piece is assumed to be a binary/grayscale image where 0 represents black.
@@ -78,12 +75,10 @@ def crop_edges(piece):
     # Return cropped image
     piece = piece[crop_top:crop_bottom+1, crop_left:crop_right+1]
 
-    kernel_size = (2, 2)  # You can adjust this size
-    kernel = np.ones(kernel_size, np.uint8)
-    
-    # Apply morphological opening
-    # piece = cv2.morphologyEx(piece, cv2.MORPH_OPEN, kernel)
-    piece = cv2.morphologyEx(piece, cv2.MORPH_CLOSE, kernel)
+    if to_sharp:
+        kernel_size = (2, 2)  
+        kernel = np.ones(kernel_size, np.uint8)
+        piece = cv2.morphologyEx(piece, cv2.MORPH_CLOSE, kernel)
     return piece
 
 
@@ -160,14 +155,15 @@ def visualize_matches_detailed(all_matches, windows_keyboard):
                 axes[1, j].set_visible(False)
                 
         plt.suptitle(
-            f'Matches for Mac Keyboard Piece #{mac_matches[0]["mac_index"]}\n\n' + 
+            f'Matches for Source Keyboard Piece #{mac_matches[0]["mac_index"]}\n\n' + 
             'Top Row: Feature Matching Visualization\n' +
-            '(Mac piece on left, Windows piece on right)\n\n' +
-            'Bottom Row: Location in Windows Keyboard (green rectangle)',
+            '(Source piece on left, Dest piece on right)\n\n' +
+            'Bottom Row: Location in Dest Keyboard (green rectangle)',
             fontsize=12, y=1.05
         )
         plt.tight_layout()
         plt.show()
+
 
 def process_windows_keyboard(windows_binary):
     # Apply some preprocessing to improve contour detection
@@ -211,7 +207,7 @@ def process_windows_keyboard(windows_binary):
     return pieces_array_windows, bbox_coords
 
 
-def find_contours(binary_img, min_thresh=500, max_thresh=1.17):
+def find_contours(binary_img, min_thresh=500, max_thresh=1.17, to_sharp=True):
     contours, _ = cv2.findContours(binary_img, 
                                         cv2.RETR_EXTERNAL, 
                                         cv2.CHAIN_APPROX_SIMPLE)
@@ -222,7 +218,7 @@ def find_contours(binary_img, min_thresh=500, max_thresh=1.17):
         x, y, w, h = cv2.boundingRect(cnt)
         org_rec = cv2.minAreaRect(cnt)
         if cv2.contourArea(cnt) > 100:  # Filter small contours
-            piece = crop_edges(binary_img[y:y+h, x:x+w])
+            piece = crop_edges(binary_img[y:y+h, x:x+w], to_sharp)
             # Store original coordinates with current piece index
             mac_piece_contours, _ = cv2.findContours(piece, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
             contours_for_piece = []
@@ -242,8 +238,7 @@ def find_contours(binary_img, min_thresh=500, max_thresh=1.17):
     # Process pieces while maintaining original indices
     for piece_idx, (piece, contours, length_org, orig_idx) in enumerate(pieces_array):
         filtered_contours = filter_contained_contours(contours)
-        sorted_filtered_contours = sorted(filtered_contours, key=lambda x: (x['y'], x['x']))
-        pieces_array[piece_idx] = (piece, sorted_filtered_contours, length_org, orig_idx)
+        pieces_array[piece_idx] = (piece, filtered_contours, length_org, orig_idx)
 
     # Sort pieces but keep original index
     pieces_array = sorted(pieces_array, key=lambda x: x[2], reverse=True)
@@ -252,7 +247,7 @@ def find_contours(binary_img, min_thresh=500, max_thresh=1.17):
 
 
 def visualize_contours(piece_array):
-    for piece, contours, _ in piece_array:
+    for piece, contours, _, _ in piece_array:
         piece_color = cv2.cvtColor(piece, cv2.COLOR_GRAY2BGR)
         for contour_data in contours:
             # Correctly reconstruct the rotated rectangle
@@ -273,7 +268,81 @@ def visualize_contours(piece_array):
         plt.show()
 
 
-def find_matching_pieces(piece_array_mac, piece_array_windows):
+def is_match_in_contour(match, contour, kp, is_query=True):
+    """
+    Check if a match point falls within a contour's bounds
+    
+    Args:
+        match: DMatch object
+        contour: Dictionary containing contour info
+        kp: Keypoints list
+        is_query: If True, use queryIdx, else use trainIdx
+    """
+    x = contour['x'] - contour['width']/2
+    y = contour['y'] - contour['height']/2
+    width = contour['width']
+    height = contour['height']
+
+    padding_x = width * 0.2
+    padding_y = height * 0.2
+
+    # Use queryIdx for Mac keypoints, trainIdx for Windows keypoints
+    point = kp[match.queryIdx if is_query else match.trainIdx].pt
+
+    return ((x - padding_x) <= point[0] <= (x + width + padding_x) and 
+            (y - padding_y) <= point[1] <= (y + height + padding_y))
+
+
+def match_contours(mac_piece_contours, win_piece_contours, good_matches, mac_kp, windows_kp):
+    # Step 1: Create arrays of matches for each Mac contour
+    matches_per_mac_contour = []
+    for mac_contour in mac_piece_contours:
+        # Get all matches that fall within this Mac contour
+        contour_matches = [m for m in good_matches if is_match_in_contour(m, mac_contour, mac_kp, True)]
+        matches_per_mac_contour.append(contour_matches)
+    
+    # Step 2: Sort Mac contours by number of matches (descending)
+    sort_indices = np.argsort([len(matches) for matches in matches_per_mac_contour])[::-1]
+    matches_per_mac_contour = [matches_per_mac_contour[i] for i in sort_indices]
+    mac_piece_contours = [mac_piece_contours[i] for i in sort_indices]
+    
+    # Keep track of available Windows contours using a list of booleans
+    available_win_indices = [True] * len(win_piece_contours)
+    actual_matches = []  # Will store the final matches
+    
+    # Step 3 & 4: For each Mac contour (starting with most matches)
+    for mac_matches in matches_per_mac_contour:
+        if not mac_matches:
+            continue
+            
+        # Find how many matches go to each available Windows contour
+        best_match_count = 0
+        best_matches = []
+        best_win_idx = -1
+        
+        for win_idx, win_contour in enumerate(win_piece_contours):
+            if not available_win_indices[win_idx]:
+                continue
+                
+            # Get matches that fall within this Windows contour
+            matches_in_win = [m for m in mac_matches 
+                            if is_match_in_contour(m, win_contour, windows_kp, False)]
+            
+            if len(matches_in_win) > best_match_count:
+                best_match_count = len(matches_in_win)
+                best_matches = matches_in_win
+                best_win_idx = win_idx
+        
+        if best_win_idx >= 0:
+            # Add the matches between these contours to actual_matches
+            actual_matches.extend(best_matches)
+            # Mark the Windows contour as used
+            available_win_indices[best_win_idx] = False
+    
+    return actual_matches
+
+
+def find_matching_pieces(piece_array_mac, piece_array_windows, max_gap=2.5):
     sift = cv2.SIFT_create()
     bf = cv2.BFMatcher()
     all_matches = []
@@ -287,10 +356,10 @@ def find_matching_pieces(piece_array_mac, piece_array_windows):
             
         for j, (windows_piece, win_piece_contours, length_win_contours_org, _) in enumerate(piece_array_windows):
             
-            if(length_win_contours_org < length_mac_contours_org): 
+            if(length_win_contours_org < length_mac_contours_org-1): 
                 break
                 
-            if length_mac_contours_org != length_win_contours_org or len(mac_piece_contours) != len(win_piece_contours): 
+            if length_mac_contours_org != length_win_contours_org or len(mac_piece_contours) != len(win_piece_contours):
                 continue
 
             windows_kp, windows_des = sift.detectAndCompute(windows_piece, None)  
@@ -303,51 +372,15 @@ def find_matching_pieces(piece_array_mac, piece_array_windows):
             
             good_matches = []
             
-            for m, n in matches:
+            for match in matches:
+                if len(match) < 2:
+                    continue  # Skip if we don't have two matches to compare
+                m, n = match  # Now we know we have 2 matches
                 if m.distance < 0.875 * n.distance:
                     good_matches.append(m)
             
-            actual_matches = []
+            actual_matches = match_contours(mac_piece_contours, win_piece_contours, good_matches, mac_kp, windows_kp)
 
-            for idx, (mac_contour, win_contour) in enumerate(zip(mac_piece_contours, win_piece_contours)):
-                # Get the bounding boxes with some padding
-                mac_x = mac_contour['x'] - mac_contour['width']/2
-                mac_y = mac_contour['y'] - mac_contour['height']/2
-                mac_width = mac_contour['width']
-                mac_height = mac_contour['height']
-                
-                win_x = win_contour['x'] - win_contour['width']/2
-                win_y = win_contour['y'] - win_contour['height']/2
-                win_width = win_contour['width']
-                win_height = win_contour['height']
-                
-                # Add padding (20% of width/height)
-                mac_padding_x = mac_width * 0.2
-                mac_padding_y = mac_height * 0.2
-                win_padding_x = win_width * 0.2
-                win_padding_y = win_height * 0.2
-                
-                # Filter matches where both keypoints are within their respective contours (with padding)
-                for match in good_matches:
-                    mac_point = mac_kp[match.queryIdx].pt
-                    win_point = windows_kp[match.trainIdx].pt
-                    
-                    # Check if the mac point is within the current mac contour (with padding)
-                    is_mac_point_inside = (
-                        (mac_x - mac_padding_x) <= mac_point[0] <= (mac_x + mac_width + mac_padding_x) and
-                        (mac_y - mac_padding_y) <= mac_point[1] <= (mac_y + mac_height + mac_padding_y)
-                    )
-                    
-                    # Check if the windows point is within the current windows contour (with padding)
-                    is_win_point_inside = (
-                        (win_x - win_padding_x) <= win_point[0] <= (win_x + win_width + win_padding_x) and
-                        (win_y - win_padding_y) <= win_point[1] <= (win_y + win_height + win_padding_y)
-                    )
-                    
-                    # If both points are inside their respective contours, add to actual matches
-                    if is_mac_point_inside and is_win_point_inside:
-                        actual_matches.append(match)
-            
             if len(mac_piece_contours) > 0:
                 score = len(actual_matches) / len(mac_piece_contours)
             else:
@@ -374,37 +407,53 @@ def find_matching_pieces(piece_array_mac, piece_array_windows):
             
         if mac_matches:
             sorted_matches = sorted(mac_matches, 
-                                 key=lambda x: x['score'], 
-                                 reverse=True)
+                                key=lambda x: x['score'], 
+                                reverse=True)
             
             top_matches = []
             top_score = sorted_matches[0]['score']
+            unique_scores_found = 1  
+            last_different_score = top_score
+            max_matches = 8  
+            
             for m in sorted_matches:
-                if m['score'] == top_score:
-                    top_matches.append(m)
-                elif m['score'] >= top_score - 2.5:
-                    top_matches.append(m)
+                current_score = m['score']
+                
+                # If we've already found 3 different scores or hit max matches, stop
+                if unique_scores_found >= 3 or len(top_matches) >= max_matches:
                     break
+                    
+                # If it's the same score as we've seen, add it (subject to max_matches)
+                if current_score == last_different_score:
+                    if len(top_matches) < max_matches:
+                        top_matches.append(m)
+                # If it's a new score within acceptable gap, add it
+                elif current_score >= (top_score - max_gap):
+                    if len(top_matches) < max_matches:
+                        top_matches.append(m)
+                        unique_scores_found += 1
+                        last_different_score = current_score
                 else:
-                    break
-            all_matches.append(top_matches)
+                    break  
+                    
+            all_matches.append(top_matches)  
 
-    return all_matches
+
+    return sorted(all_matches, key=lambda x: (len(x), -x[0]['score']))
 
 
-def reduce_matches(matching_pieces):
+def reduce_matches(matching_pieces, max_thresh=4.5):
     """Reduce matches by eliminating duplicate windows piece matches."""
-    sorted_matching_pieces = sorted(matching_pieces, key=lambda x: (len(x), -x[0]['score']))
     found_windows_indices = set()
     reduced_matches = []
 
-    for matches in sorted_matching_pieces:
+    for matches in matching_pieces:
         filtered_matches = [
             match for match in matches 
             if match['windows_index'] not in found_windows_indices
         ]
         
-        if len(filtered_matches) == 1 and filtered_matches[0]['score'] >= 4:
+        if len(filtered_matches) == 1 and filtered_matches[0]['score'] > max_thresh:
             found_windows_indices.add(filtered_matches[0]['windows_index'])
             reduced_matches.append(filtered_matches)
         elif filtered_matches:
@@ -412,41 +461,60 @@ def reduce_matches(matching_pieces):
     return reduced_matches
 
 
+def main(source_binary, dest_binary, dest_org_img, max_gap_thresh = 2.5, animation_name=None):
 
-mac = cv2.imread("mac.jpeg", cv2.IMREAD_GRAYSCALE)
+    pieces_array_source  = find_contours(source_binary)
 
-mac_binary = cv2.threshold(mac, 135, 255,cv2.THRESH_BINARY)[1]
+    pieces_array_dest = find_contours(dest_binary, 370)
 
-mac_binary = np.where(mac_binary == 0, 255, 0).astype(np.uint8)
-kernel_size = (3, 3)  
-kernel = np.ones(kernel_size, np.uint8)
-blurred_img = cv2.GaussianBlur(mac_binary, (5,5), 0)  # (kernel size, standard deviation)
-eroded_img = cv2.dilate(mac_binary, kernel, iterations=4)
-mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
-mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
-eroded_img = cv2.erode(mac_binary, kernel, iterations=2)
+    matching_pieces = find_matching_pieces(pieces_array_source, pieces_array_dest, max_gap_thresh)
+    reduced_matches = reduce_matches(matching_pieces)
+    visualize_matches_detailed(reduced_matches, dest_org_img)
 
-cv2.imwrite('binary_mac.jpeg', mac_binary)
+    # *****************************************************************
+    # to activate animation remove those lines (477-478) from comment:
 
-pieces_array_mac  = find_contours(mac_binary)
-
-
-windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
-
-clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(10, 10))
-
-enhanced_image = clahe.apply(windows)
-
-windows_binary = np.where(windows < 170, 255, 0).astype(np.uint8)
-
-cv2.imwrite('binary_windows.jpeg', windows_binary)
+    # import make_animation
+    # make_animation.create_matches_gif(reduced_matches, dest_org_img, animation_name, duration=0.8)
+   
 
 
-pieces_array_windows = find_contours(windows_binary, 370)
+if __name__ == '__main__':
+    # ---------------------- PART 1 ----------------------
+    # compering mac keyboard to windows keyboard 
+    mac = cv2.imread("mac.jpeg", cv2.IMREAD_GRAYSCALE)
 
-windows_keyboard_proccessed, bbox_coords = process_windows_keyboard(windows_binary)
-matching_pieces = find_matching_pieces(pieces_array_mac, pieces_array_windows)
-reduced_matches = reduce_matches(matching_pieces)
-for i in range(3):
-    reduced_matches = reduce_matches(reduced_matches)
-visualize_matches_detailed(reduced_matches, windows)
+    mac_binary = cv2.threshold(mac, 135, 255,cv2.THRESH_BINARY)[1]
+
+    mac_binary = np.where(mac_binary == 0, 255, 0).astype(np.uint8)
+    kernel_size = (3, 3)  
+    kernel = np.ones(kernel_size, np.uint8)
+    mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
+    mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
+
+    windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
+
+    windows_binary = np.where(windows < 170, 255, 0).astype(np.uint8)
+
+    cv2.imwrite('binary_windows.jpeg', windows_binary)
+
+    main(mac_binary, windows_binary, windows, animation_name='keyboard_matches_win_vs_mac.gif')
+
+    # ---------------------- PART 2 ----------------------
+    # conpering pink mac keyboard to white mac keyboard
+
+    pink_mac = cv2.imread("pink_mac.jpg", cv2.IMREAD_GRAYSCALE)
+
+    pink_mac_binary = cv2.threshold(pink_mac, 100, 255,cv2.THRESH_BINARY)[1]
+
+    pink_mac_binary = np.where(pink_mac_binary == 0, 255, 0).astype(np.uint8)
+    kernel_size = (3, 3)  
+    kernel = np.ones(kernel_size, np.uint8)
+    pink_mac_binary = cv2.morphologyEx(pink_mac_binary, cv2.MORPH_CLOSE, kernel)
+    pink_mac_binary = cv2.morphologyEx(pink_mac_binary, cv2.MORPH_CLOSE, kernel)
+
+    # *****************************************************************
+    # to activate pink_mac_binary vs white mac remove this line (519) from comment:
+    
+    # main(pink_mac_binary, mac_binary, mac, 1.0, animation_name='keyboard_matches_pinc_vs_white.gif')
+

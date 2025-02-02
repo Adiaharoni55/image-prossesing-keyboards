@@ -1,20 +1,22 @@
 # Keyboard Layout Matching
 
-A Python-based computer vision project that matches corresponding keys between Mac and Windows keyboard layouts using feature detection and matching algorithms.
+A Python-based computer vision project that matches corresponding keys between different keyboard layouts using feature detection and matching algorithms. Now supports matching between Mac and Windows keyboards, as well as different Mac keyboard variants (e.g., white and pink).
 
 ## Overview
 
-This project implements an automated system to match keyboard pieces between Mac and Windows keyboards using computer vision techniques. It uses SIFT (Scale-Invariant Feature Transform) for feature detection and matching, along with various image processing techniques to improve accuracy.
+This project implements an automated system to match keyboard pieces between different keyboard layouts using computer vision techniques. It uses SIFT (Scale-Invariant Feature Transform) for feature detection and matching, along with contour-based analysis for improved accuracy.
 
 ## Features
 
 - Image preprocessing and binary conversion
-- Keyboard piece extraction and contour detection
-- SIFT-based feature matching
-- Parallel line detection for match verification
-- Match reduction to eliminate duplicates
-- Detailed visualization of matches
-- Support for both Mac and Windows keyboard layouts
+- Intelligent keyboard piece extraction with edge cropping
+- Contour-based feature analysis and filtering
+- SIFT-based feature matching with adaptive scoring
+- Smart match filtering with gap-based score thresholds
+- Detailed visualization of matches with keyboard location mapping
+- Support for multiple keyboard layout comparisons:
+  - Mac to Windows keyboard mapping
+  - Different Mac keyboard variants (e.g., pink to white)
 
 ## Requirements
 
@@ -43,6 +45,7 @@ pip install opencv-python numpy matplotlib
 1. Place your keyboard images in the project directory:
    - `mac.jpeg`: Mac keyboard image
    - `windows.jpeg`: Windows keyboard image
+   - `pink_mac.jpg`: Pink Mac keyboard image (for Mac-to-Mac comparison)
 
 2. Run the main script:
 ```bash
@@ -51,73 +54,77 @@ python main.py
 
 ## How It Works
 
-The matching process consists of several steps:
+The matching process consists of several sophisticated steps:
 
 1. **Image Preprocessing**
-   - Converts images to binary format
+   - Converts images to binary format with adaptive thresholding
    - Applies morphological operations for noise reduction
-   - Performs edge detection and cleaning
+   - Performs intelligent edge cropping
 
-2. **Piece Extraction**
-   - Identifies individual keys using contour detection
-   - Crops and processes each key piece
-   - Extracts relevant contour features
+2. **Contour Processing**
+   - Identifies keyboard pieces using contour detection
+   - Filters nested contours to avoid duplicates
+   - Extracts geometric features (area, dimensions, orientation)
+   - Crops edges intelligently using the `crop_edges` function
 
 3. **Feature Matching**
-   - Uses SIFT to detect key features
-   - Performs initial matching using BFMatcher
-   - Filters matches based on distance ratio
+   - Uses SIFT to detect robust key features
+   - Performs kNN matching with ratio test
+   - Maps matches to specific contours within pieces
+   - Implements contour-specific match filtering
 
-4. **Match Verification**
-   - Finds parallel lines in matches
-   - Calculates matching scores
-   - Reduces duplicate matches
-   - Verifies contour area ratios
+4. **Smart Match Selection**
+   - Uses a gap-based scoring system for match selection
+   - Maintains top 3 different scores within specified gap
+   - Limits total matches to 8 per piece
+   - Supports different gap thresholds for different keyboard comparisons
 
 5. **Visualization**
-   - Displays matched pieces side by side
-   - Shows location of matches on the original keyboard
-   - Provides detailed match statistics
+   - Shows matched pieces with feature correspondences
+   - Displays location on target keyboard
+   - Provides score-based match ranking
 
 ## Key Functions
 
-- `preprocess_image()`: Handles image preprocessing
-- `extract_pieces()`: Extracts keyboard pieces from binary images
-- `find_matching_pieces()`: Core matching algorithm
+- `find_contours()`: Advanced contour detection with filtering
+- `crop_edges()`: Intelligent edge cropping for pieces
+- `filter_contained_contours()`: Removes nested contours
+- `match_contours()`: Matches contours between pieces using SIFT features
+- `find_matching_pieces()`: Core matching algorithm with smart scoring
 - `reduce_matches()`: Eliminates duplicate matches
-- `visualize_matches_detailed()`: Creates detailed visualizations
+- `visualize_matches_detailed()`: Creates comprehensive visualizations
 
 ## Parameters
 
-Key parameters that can be adjusted:
+Adjustable parameters for different scenarios:
 
-- Binary threshold values (Mac: 135, Windows: 170)
-- Minimum contour area (default: 100)
-- SIFT match ratio (default: 0.875)
-- Score thresholds (minimum score: 4)
-- Area ratio tolerances (0.55 and 2.0)
+- Binary thresholds:
+  - Mac keyboard: 135
+  - Windows keyboard: 170
+  - Pink Mac keyboard: 100
+- Contour filtering:
+  - Minimum area: 100
+  - Edge padding: 10 pixels
+- Matching parameters:
+  - SIFT ratio test: 0.875
+  - Match score gap threshold: 2.5 (Mac-Windows), 1.0 (Mac-Mac)
+  - Maximum matches per piece: 8
+  - Maximum different scores: 3
 
 ## Visualization
 
-The program generates visualizations showing:
-- Feature matches between corresponding pieces
-- Location of matches on the Windows keyboard
-- Match scores and statistics
+The program generates detailed visualizations showing:
+- Feature matches between corresponding keyboard pieces
+- Location mapping on the target keyboard
+- Score-based match ranking with gap thresholds
+- Contour detection results
 
 ## Known Limitations
 
-- Requires good quality input images
-- Sensitive to lighting conditions
-- May produce some false matches in ambiguous cases
-- Processing time increases with image resolution
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-[Your chosen license]
+- Requires consistent lighting in input images
+- Sensitive to keyboard orientation differences
+- May require adjustment of gap thresholds for different keyboard pairs
+- Processing time varies with image resolution and quality
 
 ## Acknowledgments
 
