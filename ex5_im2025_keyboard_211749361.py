@@ -347,6 +347,7 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, max_gap=2.5):
     bf = cv2.BFMatcher()
     all_matches = []
     
+    start_idx = 0
     for i, (mac_piece, mac_piece_contours, length_mac_contours_org, _) in enumerate(piece_array_mac):
         mac_matches = []
         mac_kp, mac_des = sift.detectAndCompute(mac_piece, None)  
@@ -354,28 +355,40 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, max_gap=2.5):
         if mac_des is None: 
             continue
             
-        for j, (windows_piece, win_piece_contours, length_win_contours_org, _) in enumerate(piece_array_windows):
-            
-            if(length_win_contours_org < length_mac_contours_org-1): 
+        # Find where windows pieces match the current mac piece length
+        for j in range(start_idx, len(piece_array_windows)):
+            windows_piece, win_piece_contours, length_win_contours_org, _ = piece_array_windows[j]
+            if length_win_contours_org >= length_mac_contours_org:
+                start_idx = j
                 break
-                
-            if length_mac_contours_org != length_win_contours_org or len(mac_piece_contours) != len(win_piece_contours):
+        
+        # Find where windows pieces become too small
+        end_idx = len(piece_array_windows)
+        for j in range(start_idx, len(piece_array_windows)):
+            windows_piece, win_piece_contours, length_win_contours_org, _ = piece_array_windows[j]
+            if length_win_contours_org < length_mac_contours_org:
+                end_idx = j
+                break
+        
+        # Process only the relevant window pieces
+        for j in range(start_idx, end_idx):
+            windows_piece, win_piece_contours, length_win_contours_org, _ = piece_array_windows[j]
+            
+            if len(mac_piece_contours) != len(win_piece_contours):
                 continue
 
             windows_kp, windows_des = sift.detectAndCompute(windows_piece, None)  
             
             if windows_des is None: 
                 continue
-                
-                        
+            
             matches = bf.knnMatch(mac_des, windows_des, k=2)
             
             good_matches = []
-            
             for match in matches:
                 if len(match) < 2:
-                    continue  # Skip if we don't have two matches to compare
-                m, n = match  # Now we know we have 2 matches
+                    continue
+                m, n = match
                 if m.distance < 0.875 * n.distance:
                     good_matches.append(m)
             
@@ -388,59 +401,50 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, max_gap=2.5):
                  
             if score >= 1.0:
                 match_info = {
-                        'mac_piece': mac_piece,
-                        'windows_piece': windows_piece,
-                        'original_mac_piece': piece_array_mac[i],
-                        'original_windows_piece': piece_array_windows[j],
-                        'mac_index': i,
-                        'windows_index': j,
-                        'score': score,
-                        'matches': actual_matches,
-                        'mac_kp': mac_kp,
-                        'windows_kp': windows_kp,
-                        'mac_contours': mac_piece_contours,
-                        'windows_contours': win_piece_contours,
-
-                    }
+                    'mac_piece': mac_piece,
+                    'windows_piece': windows_piece,
+                    'original_mac_piece': piece_array_mac[i],
+                    'original_windows_piece': piece_array_windows[j],
+                    'mac_index': i,
+                    'windows_index': j,
+                    'score': score,
+                    'matches': actual_matches,
+                    'mac_kp': mac_kp,
+                    'windows_kp': windows_kp,
+                    'mac_contours': mac_piece_contours,
+                    'windows_contours': win_piece_contours,
+                }
                 mac_matches.append(match_info)
 
-            
         if mac_matches:
-            sorted_matches = sorted(mac_matches, 
-                                key=lambda x: x['score'], 
-                                reverse=True)
+            sorted_matches = sorted(mac_matches, key=lambda x: x['score'], reverse=True)
             
             top_matches = []
             top_score = sorted_matches[0]['score']
-            unique_scores_found = 1  
+            unique_scores_found = 1
             last_different_score = top_score
-            max_matches = 8  
+            max_matches = 8
             
             for m in sorted_matches:
                 current_score = m['score']
                 
-                # If we've already found 3 different scores or hit max matches, stop
                 if unique_scores_found >= 3 or len(top_matches) >= max_matches:
                     break
                     
-                # If it's the same score as we've seen, add it (subject to max_matches)
                 if current_score == last_different_score:
                     if len(top_matches) < max_matches:
                         top_matches.append(m)
-                # If it's a new score within acceptable gap, add it
                 elif current_score >= (top_score - max_gap):
                     if len(top_matches) < max_matches:
                         top_matches.append(m)
                         unique_scores_found += 1
                         last_different_score = current_score
                 else:
-                    break  
+                    break
                     
-            all_matches.append(top_matches)  
-
+            all_matches.append(top_matches)
 
     return sorted(all_matches, key=lambda x: (len(x), -x[0]['score']))
-
 
 def reduce_matches(matching_pieces, max_thresh=4.5):
     """Reduce matches by eliminating duplicate windows piece matches."""
