@@ -1,86 +1,132 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from PIL import Image
 import os
 
-
-
-def create_matches_animation(all_matches, windows_keyboard, bbox_coords, output_filename='matches_animation.gif'):
+def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif', duration=1.0):
+    """
+    Creates a GIF using the same visualization style as visualize_matches_detailed
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Please install Pillow: pip install Pillow")
+        return
+        
+    plt.ioff()  # Turn off interactive mode
+    frames = []
     
-    # Pre-convert windows keyboard once instead of every frame
-    keyboard_viz_base = cv2.cvtColor(windows_keyboard.copy(), cv2.COLOR_GRAY2BGR)
+    # First pass: find the maximum dimensions
+    max_width = 0
+    max_height = 0
     
-    # Optimize figure creation
-    plt.ioff()
-    images_pil = []
+    for mac_matches in all_matches:
+        n_matches = len(mac_matches)
+        fig, axes = plt.subplots(2, min(8, n_matches), figsize=(20, 7), dpi=100)
+        plt.tight_layout()
+        
+        # Save figure to get its size
+        temp_filename = 'temp_size_check.png'
+        plt.savefig(temp_filename, dpi=100, bbox_inches='tight')
+        plt.close()
+        
+        img = Image.open(temp_filename)
+        max_width = max(max_width, img.size[0])
+        max_height = max(max_height, img.size[1])
+        os.remove(temp_filename)
+    
     print(f"Starting to process {len(all_matches)} sets of matches...")
+    print(f"Maximum dimensions: {max_width}x{max_height}")
     
     for i, mac_matches in enumerate(all_matches):
-        fig = plt.figure(figsize=(20, 7), dpi=80)  # Reduced DPI for faster rendering
-        gs = fig.add_gridspec(2, min(8, len(mac_matches)))
+        n_matches = len(mac_matches)
+        fig, axes = plt.subplots(2, min(8, n_matches), figsize=(20, 7), dpi=100)
+        
+        if n_matches == 1:
+            axes = np.array([[axes[0]], [axes[1]]])
         
         for idx, match in enumerate(mac_matches):
             if idx >= 8:
                 break
-                
-            # Top row
-            ax_top = fig.add_subplot(gs[0, idx])
+
             matches_img = cv2.drawMatches(
                 match['mac_piece'], match['mac_kp'],
                 match['windows_piece'], match['windows_kp'],
                 match['matches'], None,
                 flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
             )
-            ax_top.imshow(matches_img)
-            ax_top.set_title(f'score: {match["score"]}\n')
-            ax_top.axis('off')
+
+            axes[0, idx].imshow(matches_img)
+            axes[0, idx].set_title(f'score: {round(match["score"], 2)}\n')
+            axes[0, idx].axis('off')
+
+            keyboard_viz = cv2.cvtColor(windows_keyboard.copy(), cv2.COLOR_GRAY2BGR)
+            org_rect = match['original_windows_piece'][3]
+            box = cv2.boxPoints(org_rect)
+            box = np.int0(box)
+            cv2.drawContours(keyboard_viz, [box], 0, (0, 255, 0), 15)
             
-            # Bottom row - use pre-converted keyboard
-            ax_bottom = fig.add_subplot(gs[1, idx])
-            keyboard_viz = keyboard_viz_base.copy()
-            windows_idx = match['windows_index']
-            x1, y1, x2, y2 = bbox_coords[windows_idx]
-            cv2.rectangle(keyboard_viz, (x1, y1), (x2, y2), (0, 255, 0), 15)
-            ax_bottom.imshow(keyboard_viz)
-            ax_bottom.axis('off')
+            axes[1, idx].imshow(keyboard_viz)
+            axes[1, idx].axis('off')
+        
+        for j in range(n_matches, 8):
+            if j < axes.shape[1]:
+                axes[0, j].axis('off')
+                axes[1, j].set_visible(False)
         
         plt.suptitle(
-            f'Matches for Mac Keyboard Piece #{mac_matches[0]["mac_index"]} ({i+1}/{len(all_matches)})',
-            fontsize=12, y=1.02  # Reduced padding
+            f'Matches for Mac Keyboard Piece #{mac_matches[0]["mac_index"]}\n\n' + 
+            'Top Row: Feature Matching Visualization\n' +
+            '(Mac piece on left, Windows piece on right)\n\n' +
+            'Bottom Row: Location in Windows Keyboard (green rectangle)',
+            fontsize=12, y=1.05
         )
-        
         plt.tight_layout()
         
-        # Faster image conversion
-        fig.canvas.draw()
-        buf = np.asarray(fig.canvas.buffer_rgba())
-        pil_img = Image.fromarray(buf).convert('RGB')  # Convert to RGB for smaller file size
+        # Save figure to a temporary file
+        temp_filename = f'temp_frame_{i}.png'
+        plt.savefig(temp_filename, dpi=100, bbox_inches='tight')
+        plt.close()
         
-        # Faster resizing with reduced quality
-        new_size = (pil_img.size[0] // 2, pil_img.size[1] // 2)
-        pil_img = pil_img.resize(new_size, Image.Resampling.BILINEAR)  # BILINEAR is faster than LANCZOS
+        # Read the saved image with PIL
+        img = Image.open(temp_filename)
         
-        images_pil.append(pil_img)
-        plt.close(fig)
+        # Resize to match maximum dimensions
+        if img.size[0] != max_width or img.size[1] != max_height:
+            # Create a new white background image of max size
+            new_img = Image.new('RGB', (max_width, max_height), 'white')
+            # Calculate position to paste (center the smaller image)
+            paste_x = (max_width - img.size[0]) // 2
+            paste_y = (max_height - img.size[1]) // 2
+            # Paste the original image onto the white background
+            new_img.paste(img, (paste_x, paste_y))
+            img = new_img
+        
+        # Optional: resize for reasonable file size, but maintain aspect ratio
+        scale_factor = 0.5  # Adjust this value as needed
+        new_size = (int(max_width * scale_factor), int(max_height * scale_factor))
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        frames.append(img)
+        
+        # Remove temporary file
+        os.remove(temp_filename)
         
         if (i + 1) % 10 == 0:
             print(f"Processed {i + 1}/{len(all_matches)} frames...")
     
-    print(f"Creating GIF with {len(images_pil)} frames...")
-    images_pil[0].save(
-        output_filename,
-        save_all=True,
-        append_images=images_pil[1:],
-        optimize=False,  # Disable optimization for faster saving
-        duration=1000,  # Reduced to 1 second per frame
-        loop=0
-    )
-    
-    print(f"Animation saved as {output_filename}")
-    print(f"GIF file size: {os.path.getsize(output_filename) / (1024 * 1024):.2f} MB")
-
+    if frames:
+        print(f"\nCreating GIF with {len(frames)} frames...")
+        frames[0].save(
+            output_path,
+            save_all=True,
+            append_images=frames[1:],
+            optimize=True,
+            duration=int(duration * 1000),
+            loop=0
+        )
+        print(f"GIF saved to {output_path}")
+        print(f"GIF file size: {os.path.getsize(output_path) / (1024 * 1024):.2f} MB")
+    else:
+        print("No frames were successfully processed")
 
