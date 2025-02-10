@@ -1,8 +1,8 @@
+# Adi Aharoni
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-
-animation = True
 
 def filter_contained_contours(contours):
     # If no contours, return empty list
@@ -107,17 +107,29 @@ def draw_contours_on_piece(piece_img, contours, color=(0, 255, 0), thickness=2):
     return display_img
 
 
-def visualize_matches_detailed(all_matches, windows_keyboard):
+def visualize_matches_detailed(all_matches, dest_org_keyboard, source_org_img):
     # Iterate through each set of matches
-    for mac_matches in all_matches:
-        n_matches = len(mac_matches)
-        fig, axes = plt.subplots(2, min(8, n_matches), figsize=(20, 7))
+    for source_matches in all_matches:
+        n_matches = len(source_matches)
+        # Create figure with adjusted size - made smaller overall
+        fig = plt.figure(figsize=(18, 8))  # Reduced from (20, 10)
         
-        # Make sure axes is always 2D
-        if n_matches == 1:
-            axes = np.array([[axes[0]], [axes[1]]])
+        gs = plt.GridSpec(3, 1)  
+        mac_ax = plt.subplot(gs[0])
         
-        for idx, match in enumerate(mac_matches):
+        # Create a grid for the match visualizations and Windows keyboard locations
+        match_axes = [plt.subplot2grid((3, min(8, n_matches)), (1, i)) for i in range(min(8, n_matches))]
+        windows_axes = [plt.subplot2grid((3, min(8, n_matches)), (2, i)) for i in range(min(8, n_matches))]
+        
+        # First row: Show Mac piece location on original Mac keyboard
+        mac_keyboard_viz = cv2.cvtColor(source_org_img.copy(), cv2.COLOR_GRAY2BGR)
+        mac_rect = source_matches[0]['original_mac_piece'][3]
+        mac_box = np.int0(cv2.boxPoints(mac_rect))
+        cv2.drawContours(mac_keyboard_viz, [mac_box], 0, (0, 255, 0), 15)
+        mac_ax.imshow(mac_keyboard_viz)
+        mac_ax.axis('off')
+
+        for idx, match in enumerate(source_matches):
             if idx >= 8:
                 break
 
@@ -129,82 +141,53 @@ def visualize_matches_detailed(all_matches, windows_keyboard):
                 flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
             )
 
-            # Top row: show match details
-            axes[0, idx].imshow(matches_img)
-            axes[0, idx].set_title(f'score: {round(match["score"], 2)}\n')
-            axes[0, idx].axis('off')
+            # Middle row: show match details
+            match_axes[idx].imshow(matches_img)
+            match_axes[idx].set_title(f'score: {round(match["score"], 2)}', pad=1)
+            match_axes[idx].axis('off')
 
-            # Bottom row: highlight piece location in keyboard
-            keyboard_viz = cv2.cvtColor(windows_keyboard.copy(), cv2.COLOR_GRAY2BGR)
-            
-            # Get the original rectangle from the match data
-            org_rect = match['original_windows_piece'][3]  # Get the org_rec from the tuple
-            
-            # Convert minAreaRect to points and draw
-            box = cv2.boxPoints(org_rect)
-            box = np.int0(box)
+            # Bottom row: highlight piece location in Windows keyboard
+            keyboard_viz = cv2.cvtColor(dest_org_keyboard.copy(), cv2.COLOR_GRAY2BGR)
+            org_rect = match['original_windows_piece'][3]
+            box = np.int0(cv2.boxPoints(org_rect))
             cv2.drawContours(keyboard_viz, [box], 0, (0, 255, 0), 15)
-            
-            axes[1, idx].imshow(keyboard_viz)
-            axes[1, idx].axis('off')
-        
+            windows_axes[idx].imshow(keyboard_viz)
+            windows_axes[idx].axis('off')
+
         # Hide empty subplots if less than 8 matches
         for j in range(n_matches, 8):
-            if j < axes.shape[1]:
-                axes[0, j].axis('off')
-                axes[1, j].set_visible(False)
-                
+            if j < len(match_axes):
+                match_axes[j].axis('off')
+                match_axes[j].set_visible(False)
+                windows_axes[j].axis('off')
+                windows_axes[j].set_visible(False)
+
+
         plt.suptitle(
-            f'Matches for Source Keyboard Piece #{mac_matches[0]["mac_index"]}\n\n' + 
-            'Top Row: Feature Matching Visualization\n' +
-            '(Source piece on left, Dest piece on right)\n\n' +
-            'Bottom Row: Location in Dest Keyboard (green rectangle)',
-            fontsize=12, y=1.05
+            'Keyboard Key Matching Analysis',
+            fontsize=14,  # Made slightly larger
+            y=0.98,      # Moved down from 1.05
+            fontweight='bold'
         )
-        plt.tight_layout()
-        plt.show()
 
+        # Add subtitle with description
+        plt.figtext(
+            0.5,    
+            0.94,  
+            'First row: Source piece location. Second row: matches. Third row: Dest piece location.',
+            fontsize=10, 
+            ha='center',
+            va='center'
+        )
 
-def process_windows_keyboard(windows_binary):
-    # Apply some preprocessing to improve contour detection
-    kernel = np.ones((3,3), np.uint8)
-    windows_binary = cv2.morphologyEx(windows_binary, cv2.MORPH_CLOSE, kernel)
-    
-    # Find contours with different parameters
-    contours, _ = cv2.findContours(
-        windows_binary, 
-        cv2.RETR_EXTERNAL,  # Try RETR_LIST or RETR_TREE if this doesn't work
-        cv2.CHAIN_APPROX_TC89_KCOS  # More precise approximation
-    )
-    
-    pieces_array_windows = []
-    bbox_coords = {}
-    
-    min_area = 100  # Adjust this threshold if needed
-    
-    for idx, cnt in enumerate(contours):
-        # Get the minimum area rectangle
-        rect = cv2.minAreaRect(cnt)
-        box = cv2.boxPoints(rect)
-        box = np.int0(box)
-        
-        # Calculate traditional bounding rect
-        x, y, w, h = cv2.boundingRect(cnt)
-        
-        area = cv2.contourArea(cnt)
-        if area > min_area:
-            # Add some padding to the bounding box
-            padding = 2
-            x = max(0, x - padding)
-            y = max(0, y - padding)
-            w = w + 2 * padding
-            h = h + 2 * padding
-            
-            piece = windows_binary[y:y+h, x:x+w]
-            pieces_array_windows.append(piece)
-            bbox_coords[len(pieces_array_windows)-1] = (x, y, x+w, y+h)
-    
-    return pieces_array_windows, bbox_coords
+        # Adjust the subplot parameters
+        plt.subplots_adjust(
+            bottom=0.05, 
+            top=0.90,   
+            hspace=0.2    
+        )
+
+        plt.show()        
 
 
 def find_contours(binary_img, min_thresh=500, max_thresh=1.17, to_sharp=True):
@@ -423,7 +406,7 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, max_gap=2.5):
             top_score = sorted_matches[0]['score']
             unique_scores_found = 1
             last_different_score = top_score
-            max_matches = 8
+            max_matches = 5
             
             for m in sorted_matches:
                 current_score = m['score']
@@ -446,6 +429,7 @@ def find_matching_pieces(piece_array_mac, piece_array_windows, max_gap=2.5):
 
     return sorted(all_matches, key=lambda x: (len(x), -x[0]['score']))
 
+
 def reduce_matches(matching_pieces, max_thresh=4.5):
     """Reduce matches by eliminating duplicate windows piece matches."""
     found_windows_indices = set()
@@ -465,7 +449,7 @@ def reduce_matches(matching_pieces, max_thresh=4.5):
     return reduced_matches
 
 
-def main(source_binary, dest_binary, dest_org_img, max_gap_thresh = 2.5, animation_name=None):
+def main(source_binary, dest_binary, dest_org_img, source_org_img,  max_gap_thresh = 2.5):
 
     pieces_array_source  = find_contours(source_binary)
 
@@ -473,14 +457,7 @@ def main(source_binary, dest_binary, dest_org_img, max_gap_thresh = 2.5, animati
 
     matching_pieces = find_matching_pieces(pieces_array_source, pieces_array_dest, max_gap_thresh)
     reduced_matches = reduce_matches(matching_pieces)
-    visualize_matches_detailed(reduced_matches, dest_org_img)
-
-    # *****************************************************************
-    # to activate animation remove those lines (477-478) from comment:
-
-    # import make_animation
-    # make_animation.create_matches_gif(reduced_matches, dest_org_img, animation_name, duration=0.8)
-   
+    visualize_matches_detailed(reduced_matches, dest_org_img, source_org_img) 
 
 
 if __name__ == '__main__':
@@ -500,9 +477,7 @@ if __name__ == '__main__':
 
     windows_binary = np.where(windows < 170, 255, 0).astype(np.uint8)
 
-    cv2.imwrite('binary_windows.jpeg', windows_binary)
-
-    main(mac_binary, windows_binary, windows, animation_name='keyboard_matches_win_vs_mac.gif')
+    main(mac_binary, windows_binary, windows, mac)
 
     # ---------------------- PART 2 ----------------------
     # conpering pink mac keyboard to white mac keyboard
@@ -518,7 +493,7 @@ if __name__ == '__main__':
     pink_mac_binary = cv2.morphologyEx(pink_mac_binary, cv2.MORPH_CLOSE, kernel)
 
     # *****************************************************************
-    # to activate pink_mac_binary vs white mac remove this line (519) from comment:
+    # to activate pink_mac_binary vs white mac remove this line (498) from comment:
     
-    # main(pink_mac_binary, mac_binary, mac, 1.0, animation_name='keyboard_matches_pinc_vs_white.gif')
+    # main(pink_mac_binary, mac_binary, mac, pink_mac,max_gap_thresh=1.0)
 
