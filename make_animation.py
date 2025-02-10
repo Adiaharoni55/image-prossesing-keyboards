@@ -3,9 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif', duration=1.0):
+def create_matches_gif(all_matches, dest_org_keyboard, source_org_img, output_path='matches.gif', duration=0.8):
     """
     Creates a GIF using the same visualization style as visualize_matches_detailed
+    Shows three rows: source keyboard piece location, match details, and destination locations
     """
     try:
         from PIL import Image
@@ -20,9 +21,12 @@ def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif',
     max_width = 0
     max_height = 0
     
-    for mac_matches in all_matches:
-        n_matches = len(mac_matches)
-        fig, axes = plt.subplots(2, min(8, n_matches), figsize=(20, 7), dpi=100)
+    for source_matches in all_matches:
+        n_matches = len(source_matches)
+        # Create figure with same layout as visualization
+        fig = plt.figure(figsize=(18, 8))
+        gs = plt.GridSpec(3, 1)
+        
         plt.tight_layout()
         
         # Save figure to get its size
@@ -38,17 +42,30 @@ def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif',
     print(f"Starting to process {len(all_matches)} sets of matches...")
     print(f"Maximum dimensions: {max_width}x{max_height}")
     
-    for i, mac_matches in enumerate(all_matches):
-        n_matches = len(mac_matches)
-        fig, axes = plt.subplots(2, min(8, n_matches), figsize=(20, 7), dpi=100)
+    for i, source_matches in enumerate(all_matches):
+        n_matches = len(source_matches)
+        # Create figure with same layout as visualization
+        fig = plt.figure(figsize=(18, 8))
+        gs = plt.GridSpec(3, 1)
         
-        if n_matches == 1:
-            axes = np.array([[axes[0]], [axes[1]]])
+        # First row: Mac keyboard with piece location
+        mac_ax = plt.subplot(gs[0])
+        mac_keyboard_viz = cv2.cvtColor(source_org_img.copy(), cv2.COLOR_GRAY2BGR)
+        mac_rect = source_matches[0]['original_mac_piece'][3]
+        mac_box = np.int0(cv2.boxPoints(mac_rect))
+        cv2.drawContours(mac_keyboard_viz, [mac_box], 0, (0, 255, 0), 15)
+        mac_ax.imshow(mac_keyboard_viz)
+        mac_ax.axis('off')
         
-        for idx, match in enumerate(mac_matches):
+        # Create grids for matches and Windows keyboard locations
+        match_axes = [plt.subplot2grid((3, min(8, n_matches)), (1, i)) for i in range(min(8, n_matches))]
+        windows_axes = [plt.subplot2grid((3, min(8, n_matches)), (2, i)) for i in range(min(8, n_matches))]
+        
+        for idx, match in enumerate(source_matches):
             if idx >= 8:
                 break
 
+            # Draw matches between pieces
             matches_img = cv2.drawMatches(
                 match['mac_piece'], match['mac_kp'],
                 match['windows_piece'], match['windows_kp'],
@@ -56,32 +73,50 @@ def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif',
                 flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
             )
 
-            axes[0, idx].imshow(matches_img)
-            axes[0, idx].set_title(f'score: {round(match["score"], 2)}\n')
-            axes[0, idx].axis('off')
+            # Middle row: show match details
+            match_axes[idx].imshow(matches_img)
+            match_axes[idx].set_title(f'score: {round(match["score"], 2)}', pad=1)
+            match_axes[idx].axis('off')
 
-            keyboard_viz = cv2.cvtColor(windows_keyboard.copy(), cv2.COLOR_GRAY2BGR)
+            # Bottom row: highlight piece location in Windows keyboard
+            keyboard_viz = cv2.cvtColor(dest_org_keyboard.copy(), cv2.COLOR_GRAY2BGR)
             org_rect = match['original_windows_piece'][3]
-            box = cv2.boxPoints(org_rect)
-            box = np.int0(box)
+            box = np.int0(cv2.boxPoints(org_rect))
             cv2.drawContours(keyboard_viz, [box], 0, (0, 255, 0), 15)
-            
-            axes[1, idx].imshow(keyboard_viz)
-            axes[1, idx].axis('off')
-        
+            windows_axes[idx].imshow(keyboard_viz)
+            windows_axes[idx].axis('off')
+
+        # Hide empty subplots
         for j in range(n_matches, 8):
-            if j < axes.shape[1]:
-                axes[0, j].axis('off')
-                axes[1, j].set_visible(False)
+            if j < len(match_axes):
+                match_axes[j].axis('off')
+                match_axes[j].set_visible(False)
+                windows_axes[j].axis('off')
+                windows_axes[j].set_visible(False)
         
         plt.suptitle(
-            f'Matches for Mac Keyboard Piece #{mac_matches[0]["mac_index"]}\n\n' + 
-            'Top Row: Feature Matching Visualization\n' +
-            '(Mac piece on left, Windows piece on right)\n\n' +
-            'Bottom Row: Location in Windows Keyboard (green rectangle)',
-            fontsize=12, y=1.05
+            'Keyboard Key Matching Analysis',
+            fontsize=14,
+            y=0.98,
+            fontweight='bold'
         )
-        plt.tight_layout()
+
+        # Add subtitle with description
+        plt.figtext(
+            0.5,    
+            0.94,  
+            'First row: Source piece location. Second row: matches. Third row: Dest piece location.',
+            fontsize=10, 
+            ha='center',
+            va='center'
+        )
+
+        # Adjust the subplot parameters
+        plt.subplots_adjust(
+            bottom=0.05, 
+            top=0.90,   
+            hspace=0.2    
+        )
         
         # Save figure to a temporary file
         temp_filename = f'temp_frame_{i}.png'
@@ -93,16 +128,13 @@ def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif',
         
         # Resize to match maximum dimensions
         if img.size[0] != max_width or img.size[1] != max_height:
-            # Create a new white background image of max size
             new_img = Image.new('RGB', (max_width, max_height), 'white')
-            # Calculate position to paste (center the smaller image)
             paste_x = (max_width - img.size[0]) // 2
             paste_y = (max_height - img.size[1]) // 2
-            # Paste the original image onto the white background
             new_img.paste(img, (paste_x, paste_y))
             img = new_img
         
-        # Optional: resize for reasonable file size, but maintain aspect ratio
+        # Optional: resize for reasonable file size
         scale_factor = 0.5  # Adjust this value as needed
         new_size = (int(max_width * scale_factor), int(max_height * scale_factor))
         img = img.resize(new_size, Image.Resampling.LANCZOS)
@@ -129,4 +161,7 @@ def create_matches_gif(all_matches, windows_keyboard, output_path='matches.gif',
         print(f"GIF file size: {os.path.getsize(output_path) / (1024 * 1024):.2f} MB")
     else:
         print("No frames were successfully processed")
+
+
+
 
