@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Temporary GIF frames
+temp_frame_*.png
