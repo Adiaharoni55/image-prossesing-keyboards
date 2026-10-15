@@ -463,7 +463,7 @@ def main(source_binary, dest_binary, dest_org_img, source_org_img,  max_gap_thre
 if __name__ == '__main__':
     # ---------------------- PART 1 ----------------------
     # compering mac keyboard to windows keyboard 
-    mac = cv2.imread("mac.jpeg", cv2.IMREAD_GRAYSCALE)
+    mac = cv2.imread("data/mac.jpeg", cv2.IMREAD_GRAYSCALE)
 
     mac_binary = cv2.threshold(mac, 135, 255,cv2.THRESH_BINARY)[1]
 
@@ -473,7 +473,7 @@ if __name__ == '__main__':
     mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
     mac_binary = cv2.morphologyEx(mac_binary, cv2.MORPH_CLOSE, kernel)
 
-    windows = cv2.imread("windows.jpeg", cv2.IMREAD_GRAYSCALE)
+    windows = cv2.imread("data/windows.jpeg", cv2.IMREAD_GRAYSCALE)
 
     windows_binary = np.where(windows < 170, 255, 0).astype(np.uint8)
 
@@ -482,7 +482,7 @@ if __name__ == '__main__':
     # ---------------------- PART 2 ----------------------
     # conpering pink mac keyboard to white mac keyboard
 
-    pink_mac = cv2.imread("pink_mac.jpg", cv2.IMREAD_GRAYSCALE)
+    pink_mac = cv2.imread("data/pink_mac.jpg", cv2.IMREAD_GRAYSCALE)
 
     pink_mac_binary = cv2.threshold(pink_mac, 100, 255,cv2.THRESH_BINARY)[1]
 
