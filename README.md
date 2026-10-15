@@ -1,32 +1,35 @@
 # Keyboard Layout Matching
 
-A Python computer-vision project that finds where pieces of one keyboard belong on a different keyboard layout, using classical feature detection and matching (no deep learning). It supports matching between Mac and Windows keyboards, as well as between Mac keyboard variants (e.g., pink and white).
+A Python computer-vision project that finds where pieces of one keyboard belong on a different keyboard layout, using classical feature detection and matching (no deep learning). It supports matching between Mac and Windows keyboards, as well as between Mac keyboard variants whose Hebrew/English key labels are arranged differently.
 
 ## Demo
 
 **Mac ↔ Windows**
 
-![Mac to Windows keyboard matching](images/mac_windows_demo.gif)
+![Mac to Windows keyboard matching](images/keyboard_matches_win_vs_mac.gif)
 
 **Pink Mac ↔ White Mac**
 
-![Pink Mac to white Mac keyboard matching](images/mac_mac_demo.gif)
+On the pink keyboard (source), English letters are on the bottom of each key and Hebrew letters on top; on the white keyboard (target) the order is reversed. The matcher still pairs the pieces correctly.
+
+![Pink Mac to white Mac keyboard matching](images/keyboard_matches_pinc_vs_white.gif)
 
 ## Overview
 
-Given a source keyboard and a target keyboard, the program extracts individual keyboard pieces, describes them with SIFT features and contour geometry, and locates each piece's matching region on the target keyboard. A gap-based scoring system keeps only the strongest, most distinct matches, and the results are visualized with feature correspondences and their location on the target layout.
+Given a source keyboard and a target keyboard, the program extracts individual keyboard pieces, describes them with SIFT features and contour geometry, and locates each piece's matching region on the target keyboard. A gap-based scoring system keeps only the strongest, most distinct matches, and the results are visualized with feature correspondences and their location on both keyboards.
 
 ## Features
 
-- Image preprocessing with binary thresholding and morphological noise reduction
+- Image preprocessing with binary thresholding and morphological closing
 - Keyboard piece extraction with intelligent edge cropping
 - Contour-based feature analysis and nested-contour filtering
 - SIFT feature matching with kNN and ratio test
-- Gap-based match scoring and filtering
-- Detailed visualizations mapping each match to its location on the target keyboard
+- Gap-based match scoring with a minimum confidence threshold
+- Duplicate-match filtering across pieces
+- Detailed visualizations mapping each match to its location on both keyboards
 - Multiple layout comparisons:
   - Mac → Windows
-  - Mac variants (pink → white)
+  - Mac variants with different Hebrew/English label order (pink → white)
 
 ## Requirements
 
@@ -45,12 +48,22 @@ pip install opencv-python numpy matplotlib
 
 ## Usage
 
-1. Place the keyboard images in the project directory:
-   - `mac.jpeg` — Mac keyboard
+1. Place the keyboard images in the `data/` folder:
+   - `mac.jpeg` — white Mac keyboard
    - `windows.jpeg` — Windows keyboard
    - `pink_mac.jpg` — pink Mac keyboard (for the Mac-to-Mac comparison)
 
-2. Run:
+2. Choose the comparison in the `if __name__ == "__main__":` block of `main.py`. Keep exactly one of these calls uncommented:
+
+```python
+# Mac -> Windows (default)
+main(mac_binary, windows_binary, windows, mac)
+
+# Pink Mac -> white Mac
+# main(pink_mac_binary, mac_binary, mac, pink_mac, max_gap_thresh=1.0)
+```
+
+3. Run:
 
 ```bash
 python main.py
@@ -60,28 +73,30 @@ python main.py
 
 1. **Image preprocessing**
    - Converts images to binary with per-keyboard thresholds
-   - Applies morphological operations to reduce noise
+   - Applies morphological closing (3×3 kernel, two iterations) to reduce noise
    - Crops piece edges to remove border artifacts
 
 2. **Contour processing**
-   - Detects keyboard pieces with contour detection
+   - Detects keyboard pieces with OpenCV's `findContours`, discarding small contours
    - Removes nested contours to avoid duplicates
-   - Extracts geometric features (area, dimensions, orientation)
+   - Sorts contours by area (largest first) and computes each one's center, width and height
 
 3. **Feature matching**
-   - Detects SIFT keypoints and descriptors
+   - Detects scale- and rotation-invariant SIFT keypoints and descriptors
    - Performs kNN matching with a ratio test
-   - Maps matches to specific contours within each piece and filters them per contour
+   - Matches contours one-to-one: each source contour can match only one target contour
 
 4. **Match selection**
    - Scores candidate matches and keeps the top 3 distinct scores within a gap threshold
-   - Limits results to at most 8 matches per piece
    - Uses different gap thresholds for different keyboard pairs
+   - Discards matches below a minimum confidence score
+   - Tracks target pieces that were already matched to avoid duplicates
 
-5. **Visualization**
-   - Draws feature correspondences between matched pieces
-   - Highlights the matched location on the target keyboard
-   - Ranks matches by score
+5. **Visualization** (`visualize_matches_detailed`)
+   - **Source row:** marks the matched location on the source keyboard with a green frame
+   - **Feature row:** shows SIFT correspondences between the source piece (left) and the matched target piece (right) using `drawMatches`, with each match's score
+   - **Target row:** marks the matched location on the target keyboard with a green frame
+   - Multiple matches are laid out automatically in a grid
 
 ## Key Functions
 
@@ -102,10 +117,12 @@ python main.py
 | Binary threshold | Mac keyboard | 135 |
 | | Windows keyboard | 170 |
 | | Pink Mac keyboard | 100 |
-| Contour filtering | Minimum area | 100 |
+| Morphology | Closing kernel / iterations | 3×3 / 2 |
+| Contour filtering | Minimum area | 100 px |
 | | Edge padding | 10 px |
 | Matching | SIFT ratio test | 0.875 |
 | | Score gap threshold | 2.5 (Mac–Windows), 1.0 (Mac–Mac) |
+| | Minimum confidence score | 4.5 |
 | | Max matches per piece | 8 |
 | | Max distinct scores | 3 |
 
