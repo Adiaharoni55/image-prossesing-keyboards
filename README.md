@@ -1,134 +1,123 @@
 # Keyboard Layout Matching
 
-A Python-based computer vision project that matches corresponding keys between different keyboard layouts using feature detection and matching algorithms. Now supports matching between Mac and Windows keyboards, as well as different Mac keyboard variants (e.g., white and pink).
+A Python computer-vision project that finds where pieces of one keyboard belong on a different keyboard layout, using classical feature detection and matching (no deep learning). It supports matching between Mac and Windows keyboards, as well as between Mac keyboard variants (e.g., pink and white).
+
+## Demo
+
+**Mac ↔ Windows**
+
+![Mac to Windows keyboard matching](images/mac_windows_demo.gif)
+
+**Pink Mac ↔ White Mac**
+
+![Pink Mac to white Mac keyboard matching](images/mac_mac_demo.gif)
 
 ## Overview
 
-This project implements an automated system to match keyboard pieces between different keyboard layouts using computer vision techniques. It uses SIFT (Scale-Invariant Feature Transform) for feature detection and matching, along with contour-based analysis for improved accuracy.
+Given a source keyboard and a target keyboard, the program extracts individual keyboard pieces, describes them with SIFT features and contour geometry, and locates each piece's matching region on the target keyboard. A gap-based scoring system keeps only the strongest, most distinct matches, and the results are visualized with feature correspondences and their location on the target layout.
 
 ## Features
 
-- Image preprocessing and binary conversion
-- Intelligent keyboard piece extraction with edge cropping
-- Contour-based feature analysis and filtering
-- SIFT-based feature matching with adaptive scoring
-- Smart match filtering with gap-based score thresholds
-- Detailed visualization of matches with keyboard location mapping
-- Support for multiple keyboard layout comparisons:
-  - Mac to Windows keyboard mapping
-  - Different Mac keyboard variants (e.g., pink to white)
+- Image preprocessing with binary thresholding and morphological noise reduction
+- Keyboard piece extraction with intelligent edge cropping
+- Contour-based feature analysis and nested-contour filtering
+- SIFT feature matching with kNN and ratio test
+- Gap-based match scoring and filtering
+- Detailed visualizations mapping each match to its location on the target keyboard
+- Multiple layout comparisons:
+  - Mac → Windows
+  - Mac variants (pink → white)
 
 ## Requirements
 
-```
 - Python 3.7+
-- OpenCV (cv2)
+- OpenCV (`opencv-python`)
 - NumPy
 - Matplotlib
-```
 
 ## Installation
 
-1. Clone the repository:
 ```bash
-git clone [your-repository-url]
-cd keyboard-matching
-```
-
-2. Install required packages:
-```bash
+git clone https://github.com/Adiaharoni55/image-prossesing-keyboards.git
+cd image-prossesing-keyboards
 pip install opencv-python numpy matplotlib
 ```
 
 ## Usage
 
-1. Place your keyboard images in the project directory:
-   - `mac.jpeg`: Mac keyboard image
-   - `windows.jpeg`: Windows keyboard image
-   - `pink_mac.jpg`: Pink Mac keyboard image (for Mac-to-Mac comparison)
+1. Place the keyboard images in the project directory:
+   - `mac.jpeg` — Mac keyboard
+   - `windows.jpeg` — Windows keyboard
+   - `pink_mac.jpg` — pink Mac keyboard (for the Mac-to-Mac comparison)
 
-2. Run the main script:
+2. Run:
+
 ```bash
 python main.py
 ```
 
 ## How It Works
 
-The matching process consists of several sophisticated steps:
+1. **Image preprocessing**
+   - Converts images to binary with per-keyboard thresholds
+   - Applies morphological operations to reduce noise
+   - Crops piece edges to remove border artifacts
 
-1. **Image Preprocessing**
-   - Converts images to binary format with adaptive thresholding
-   - Applies morphological operations for noise reduction
-   - Performs intelligent edge cropping
-
-2. **Contour Processing**
-   - Identifies keyboard pieces using contour detection
-   - Filters nested contours to avoid duplicates
+2. **Contour processing**
+   - Detects keyboard pieces with contour detection
+   - Removes nested contours to avoid duplicates
    - Extracts geometric features (area, dimensions, orientation)
-   - Crops edges intelligently using the `crop_edges` function
 
-3. **Feature Matching**
-   - Uses SIFT to detect robust key features
-   - Performs kNN matching with ratio test
-   - Maps matches to specific contours within pieces
-   - Implements contour-specific match filtering
+3. **Feature matching**
+   - Detects SIFT keypoints and descriptors
+   - Performs kNN matching with a ratio test
+   - Maps matches to specific contours within each piece and filters them per contour
 
-4. **Smart Match Selection**
-   - Uses a gap-based scoring system for match selection
-   - Maintains top 3 different scores within specified gap
-   - Limits total matches to 8 per piece
-   - Supports different gap thresholds for different keyboard comparisons
+4. **Match selection**
+   - Scores candidate matches and keeps the top 3 distinct scores within a gap threshold
+   - Limits results to at most 8 matches per piece
+   - Uses different gap thresholds for different keyboard pairs
 
 5. **Visualization**
-   - Shows matched pieces with feature correspondences
-   - Displays location on target keyboard
-   - Provides score-based match ranking
+   - Draws feature correspondences between matched pieces
+   - Highlights the matched location on the target keyboard
+   - Ranks matches by score
 
 ## Key Functions
 
-- `find_contours()`: Advanced contour detection with filtering
-- `crop_edges()`: Intelligent edge cropping for pieces
-- `filter_contained_contours()`: Removes nested contours
-- `match_contours()`: Matches contours between pieces using SIFT features
-- `find_matching_pieces()`: Core matching algorithm with smart scoring
-- `reduce_matches()`: Eliminates duplicate matches
-- `visualize_matches_detailed()`: Creates comprehensive visualizations
+| Function | Purpose |
+|---|---|
+| `find_contours()` | Contour detection with filtering |
+| `crop_edges()` | Crops piece edges to remove border noise |
+| `filter_contained_contours()` | Removes nested contours |
+| `match_contours()` | Matches contours between pieces using SIFT features |
+| `find_matching_pieces()` | Core matching algorithm with score-based selection |
+| `reduce_matches()` | Removes duplicate matches |
+| `visualize_matches_detailed()` | Generates the match visualizations |
 
 ## Parameters
 
-Adjustable parameters for different scenarios:
-
-- Binary thresholds:
-  - Mac keyboard: 135
-  - Windows keyboard: 170
-  - Pink Mac keyboard: 100
-- Contour filtering:
-  - Minimum area: 100
-  - Edge padding: 10 pixels
-- Matching parameters:
-  - SIFT ratio test: 0.875
-  - Match score gap threshold: 2.5 (Mac-Windows), 1.0 (Mac-Mac)
-  - Maximum matches per piece: 8
-  - Maximum different scores: 3
-
-## Visualization
-
-The program generates detailed visualizations showing:
-- Feature matches between corresponding keyboard pieces
-- Location mapping on the target keyboard
-- Score-based match ranking with gap thresholds
-- Contour detection results
+| Category | Parameter | Value |
+|---|---|---|
+| Binary threshold | Mac keyboard | 135 |
+| | Windows keyboard | 170 |
+| | Pink Mac keyboard | 100 |
+| Contour filtering | Minimum area | 100 |
+| | Edge padding | 10 px |
+| Matching | SIFT ratio test | 0.875 |
+| | Score gap threshold | 2.5 (Mac–Windows), 1.0 (Mac–Mac) |
+| | Max matches per piece | 8 |
+| | Max distinct scores | 3 |
 
 ## Known Limitations
 
-- Requires consistent lighting in input images
-- Sensitive to keyboard orientation differences
-- May require adjustment of gap thresholds for different keyboard pairs
-- Processing time varies with image resolution and quality
+- Requires consistent lighting across input images
+- Sensitive to differences in keyboard orientation
+- Gap thresholds may need tuning for new keyboard pairs
+- Processing time grows with image resolution
 
-## Acknowledgments
+## Libraries Used
 
-This project uses the following open-source libraries:
-- OpenCV for computer vision operations
-- NumPy for numerical computations
-- Matplotlib for visualization
+- [OpenCV](https://opencv.org/) — image processing and SIFT
+- [NumPy](https://numpy.org/) — numerical computation
+- [Matplotlib](https://matplotlib.org/) — visualization
