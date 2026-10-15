@@ -24,7 +24,7 @@ Given a source keyboard and a target keyboard, the program extracts individual k
 - Keyboard piece extraction with intelligent edge cropping
 - Contour-based feature analysis and nested-contour filtering
 - SIFT feature matching with kNN and ratio test
-- Gap-based match scoring with a minimum confidence threshold
+- Gap-based match scoring
 - Duplicate-match filtering across pieces
 - Detailed visualizations mapping each match to its location on both keyboards
 - Multiple layout comparisons:
@@ -37,13 +37,14 @@ Given a source keyboard and a target keyboard, the program extracts individual k
 - OpenCV (`opencv-python`)
 - NumPy
 - Matplotlib
+- Pillow (only for generating GIFs)
 
 ## Installation
 
 ```bash
 git clone https://github.com/Adiaharoni55/image-prossesing-keyboards.git
 cd image-prossesing-keyboards
-pip install opencv-python numpy matplotlib
+pip install opencv-python numpy matplotlib pillow
 ```
 
 ## Usage
@@ -73,7 +74,7 @@ python main.py
 
 1. **Image preprocessing**
    - Converts images to binary with per-keyboard thresholds
-   - Applies morphological closing (3×3 kernel, two iterations) to reduce noise
+   - Applies morphological closing (3×3 kernel, two iterations) to the Mac keyboard images to reduce noise
    - Crops piece edges to remove border artifacts
 
 2. **Contour processing**
@@ -87,10 +88,10 @@ python main.py
    - Matches contours one-to-one: each source contour can match only one target contour
 
 4. **Match selection**
-   - Scores candidate matches and keeps the top 3 distinct scores within a gap threshold
+   - Scores each candidate as matched features per contour; candidates need a score of at least 1.0
+   - Keeps the top 3 distinct scores within a gap threshold, up to 5 matches per piece
    - Uses different gap thresholds for different keyboard pairs
-   - Discards matches below a minimum confidence score
-   - Tracks target pieces that were already matched to avoid duplicates
+   - Once a target piece is a source piece's only remaining match with a score above 4.5, it is locked so later pieces can't reuse it
 
 5. **Visualization** (`visualize_matches_detailed`)
    - **Source row:** marks the matched location on the source keyboard with a green frame
@@ -117,14 +118,15 @@ python main.py
 | Binary threshold | Mac keyboard | 135 |
 | | Windows keyboard | 170 |
 | | Pink Mac keyboard | 100 |
-| Morphology | Closing kernel / iterations | 3×3 / 2 |
-| Contour filtering | Minimum area | 100 px |
-| | Edge padding | 10 px |
+| Morphology | Closing kernel / iterations (Mac images) | 3×3 / 2 |
+| Contour filtering | Minimum piece area | 100 px |
+| | Inner-contour border margin | 10 px |
 | Matching | SIFT ratio test | 0.875 |
+| | Minimum candidate score | 1.0 |
 | | Score gap threshold | 2.5 (Mac–Windows), 1.0 (Mac–Mac) |
-| | Minimum confidence score | 4.5 |
-| | Max matches per piece | 8 |
+| | Max matches per piece | 5 |
 | | Max distinct scores | 3 |
+| | Target-piece lock score | 4.5 |
 
 ## Known Limitations
 
