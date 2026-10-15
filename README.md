@@ -70,6 +70,25 @@ main(mac_binary, windows_binary, windows, mac)
 python main.py
 ```
 
+### Saving the results as a GIF
+
+Pass `gif_path` to `main` to also save the results as an animated GIF, with one frame per matched piece (requires Pillow):
+
+```python
+main(mac_binary, windows_binary, windows, mac, gif_path="images/keyboard_matches_win_vs_mac.gif")
+```
+
+The GIF is created by `create_matches_gif()` in `create_gif.py`, which reuses the same figure layout as the on-screen visualization.
+
+## Project Structure
+
+```
+├── main.py          # Matching pipeline and visualization
+├── create_gif.py    # Saves the match visualizations as an animated GIF
+├── data/            # Input keyboard images
+└── images/          # Demo GIFs used in this README
+```
+
 ## How It Works
 
 1. **Image preprocessing**
@@ -109,7 +128,9 @@ python main.py
 | `match_contours()` | Matches contours between pieces using SIFT features |
 | `find_matching_pieces()` | Core matching algorithm with score-based selection |
 | `reduce_matches()` | Removes duplicate matches |
-| `visualize_matches_detailed()` | Generates the match visualizations |
+| `draw_match_figure()` | Builds the three-row figure for one source piece |
+| `visualize_matches_detailed()` | Shows the match visualizations on screen |
+| `create_matches_gif()` | Saves the visualizations as an animated GIF (`create_gif.py`) |
 
 ## Parameters
 
